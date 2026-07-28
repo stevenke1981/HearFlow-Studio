@@ -208,7 +208,7 @@ try {
     }
     $ReleaseManifest |
         ConvertTo-Json -Depth 4 |
-        Set-Content -LiteralPath (Join-Path $ReleaseDir "release-manifest.json") -Encoding utf8NoBOM
+        Out-File -LiteralPath (Join-Path $ReleaseDir "release-manifest.json") -Encoding utf8
 }
 finally {
     Pop-Location
