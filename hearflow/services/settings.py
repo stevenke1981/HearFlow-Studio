@@ -116,6 +116,36 @@ class TranslationSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class TranslationEngineSettings:
+    """Managed llama.cpp translation engine (TranslateGemma) settings."""
+
+    enabled: bool = False
+    backend: str = "cuda"
+    model_id: str = "gemma-3-4b-it"
+    model_repository: str = "ggml-org/gemma-3-4b-it-GGUF"
+    model_quant: str = "Q4_K_M"
+    port: int = 8081
+    threads: int = 4
+    context_size: int = 8192
+    batch_size: int = 2048
+    micro_batch_size: int = 512
+    gpu_layers: int = 99
+
+    def __post_init__(self) -> None:
+        if self.backend not in {"cpu", "cuda", "vulkan"}:
+            raise ValueError("translation engine backend must be cpu, cuda, or vulkan")
+        if not self.model_id.strip():
+            raise ValueError("translation engine model_id must not be empty")
+        if not self.model_repository.strip() or not self.model_quant.strip():
+            raise ValueError("translation engine model repository and quant must not be empty")
+        if not 1 <= self.port <= 65535:
+            raise ValueError("translation engine port must be between 1 and 65535")
+        for name in ("threads", "context_size", "batch_size", "micro_batch_size", "gpu_layers"):
+            if getattr(self, name) < 0:
+                raise ValueError(f"translation engine {name} must not be negative")
+
+
+@dataclass(frozen=True, slots=True)
 class AppSettings:
     """Complete persistable application settings.
 
@@ -126,6 +156,9 @@ class AppSettings:
     schema_version: int = SETTINGS_SCHEMA_VERSION
     engine: EngineSettings = field(default_factory=EngineSettings)
     translation: TranslationSettings = field(default_factory=TranslationSettings)
+    translation_engine: TranslationEngineSettings = field(
+        default_factory=TranslationEngineSettings,
+    )
     recent_projects: tuple[str, ...] = ()
     last_project_dir: str = ""
 
@@ -284,6 +317,9 @@ def settings_from_dict(payload: Mapping[str, Any]) -> AppSettings:
     )
     engine = _dataclass_from_mapping(EngineSettings, payload.get("engine", {}))
     translation = _dataclass_from_mapping(TranslationSettings, payload.get("translation", {}))
+    translation_engine = _dataclass_from_mapping(
+        TranslationEngineSettings, payload.get("translation_engine", {}),
+    )
 
     recent_raw = payload.get("recent_projects", ())
     if not isinstance(recent_raw, (list, tuple)) or not all(
@@ -298,6 +334,7 @@ def settings_from_dict(payload: Mapping[str, Any]) -> AppSettings:
         schema_version=schema_version,
         engine=engine,
         translation=translation,
+        translation_engine=translation_engine,
         recent_projects=tuple(recent_raw),
         last_project_dir=last_project_dir,
     )

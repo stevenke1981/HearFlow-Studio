@@ -21,6 +21,7 @@ from hearflow.services.settings import (
     SettingsRepository,
 )
 from hearflow.services.translation import DisabledTranslator, OpenAICompatibleTranslator
+from hearflow.services.translation_engine import TranslationEngineManager
 from hearflow.ui.main_window import MainWindow
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ def build_workflow(
     settings: AppSettings,
     engine_manager: EngineManager | None = None,
     secret_store: SecretStore | None = None,
+    translation_engine_manager: TranslationEngineManager | None = None,
 ) -> StudioWorkflow:
     """Build production services from persisted, non-secret settings."""
 
@@ -61,7 +63,20 @@ def build_workflow(
             timeout=120.0,
         )
     translator = DisabledTranslator()
-    if settings.translation.enabled:
+    if settings.translation_engine.enabled and translation_engine_manager is not None:
+        from dataclasses import replace
+
+        local_translation_settings = replace(
+            settings.translation,
+            enabled=True,
+            base_url=f"http://127.0.0.1:{settings.translation_engine.port}/v1",
+            model=settings.translation_engine.model_id,
+        )
+        translator = OpenAICompatibleTranslator(
+            local_translation_settings,
+            secret_store or SecretStore(),
+        )
+    elif settings.translation.enabled:
         translator = OpenAICompatibleTranslator(
             settings.translation,
             secret_store or SecretStore(),
@@ -109,7 +124,13 @@ def main() -> int:
     try:
         engine_manager = EngineManager(settings.engine)
         secret_store = SecretStore()
-        workflow = build_workflow(settings, engine_manager, secret_store)
+        translation_engine_manager = TranslationEngineManager(
+            settings.translation_engine,
+            runtime_root=engine_manager.runtime_root,
+        )
+        workflow = build_workflow(
+            settings, engine_manager, secret_store, translation_engine_manager,
+        )
     except Exception as exc:
         QMessageBox.critical(
             None,
@@ -124,6 +145,7 @@ def main() -> int:
         settings_repository,
         engine_manager=engine_manager,
         secret_store=secret_store,
+        translation_engine_manager=translation_engine_manager,
     )
     window.show()
     if settings_error is not None:

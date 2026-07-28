@@ -84,6 +84,18 @@ llama.cpp 後端及暫存下載空間。CUDA 版本會明顯較大。
 完整步驟、離線方式與疑難排解見
 [`docs/INSTALLATION.md`](docs/INSTALLATION.md)。
 
+## 安裝翻譯模型（TranslateGemma）
+
+聽序支援本機 TranslateGemma（Gemma-3-4B-IT Q4_K_M）翻譯引擎，使用同一個
+llama-server 在獨立埠（預設 8081）提供 OpenAI-compatible 翻譯端點。
+
+```powershell
+.\scripts\install-engine.ps1 -Backend cuda12.4 -InstallTranslationModel
+```
+
+安裝後在偏好設定啟用翻譯引擎，程式會自動管理第二個 llama-server 程序。
+翻譯模型約 2.7 GiB，需要與辨識引擎相同的 llama.cpp 後端。
+
 ## 建置可攜版
 
 先安裝 runtime，再驗證與封裝：

@@ -9,6 +9,8 @@ param(
 
     [switch]$SkipGatewayBuild,
 
+    [switch]$InstallTranslationModel,
+
     [switch]$DryRun
 )
 
@@ -26,6 +28,9 @@ $GatewayRevision = "363b60618e4029977d6492d4f41d852638740a43"
 $ModelRepository = "ggml-org/Qwen3-ASR-0.6B-GGUF"
 $ModelFileName = "Qwen3-ASR-0.6B-Q8_0.gguf"
 $MmprojFileName = "mmproj-Qwen3-ASR-0.6B-Q8_0.gguf"
+
+$TranslationModelRepository = "ggml-org/gemma-3-4b-it-GGUF"
+$TranslationModelFileName = "gemma-3-4b-it-Q4_K_M.gguf"
 
 $ExpectedSha256 = @{
     "llama-b10155-bin-win-cpu-x64.zip" = "1f38b45dd037844145fecf2bffe2e85b49798d8ec0b3ab8abec1314e01277fed"
@@ -445,6 +450,18 @@ Actual:   $mmprojHash
     Invoke-Download `
         -Uri "https://huggingface.co/Qwen/Qwen3-ASR-0.6B/resolve/main/README.md" `
         -Destination (Join-Path $ModelsDir "README.Qwen3-ASR-base-model.md")
+
+    if ($InstallTranslationModel) {
+        Write-Step "Installing TranslateGemma (Gemma-3-4B-IT Q4_K_M) translation model"
+        $translationModelPath = Join-Path $ModelsDir $TranslationModelFileName
+        $translationModelBase = "https://huggingface.co/$TranslationModelRepository/resolve/main"
+        Invoke-Download `
+            -Uri "$translationModelBase/${TranslationModelFileName}?download=true" `
+            -Destination $translationModelPath
+        Invoke-Download `
+            -Uri "https://huggingface.co/$TranslationModelRepository/resolve/main/README.md" `
+            -Destination (Join-Path $ModelsDir "README.gemma-3-4b-it-GGUF.md")
+    }
 
     Write-Step "Writing runtime manifest"
     if ($DryRun) {

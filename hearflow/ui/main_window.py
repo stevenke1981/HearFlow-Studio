@@ -47,6 +47,7 @@ from hearflow.services.engine import EngineManager, application_root
 from hearflow.services.gateway import QwenGatewayClient
 from hearflow.services.settings import AppSettings, SecretStore, SettingsRepository
 from hearflow.services.translation import DisabledTranslator, OpenAICompatibleTranslator
+from hearflow.services.translation_engine import TranslationEngineManager
 from hearflow.ui.dialogs import (
     EnvironmentReportDialog,
     NewProjectDialog,
@@ -156,6 +157,7 @@ class MainWindow(QMainWindow):
         settings_repository: SettingsRepository | None = None,
         engine_manager: EngineManager | None = None,
         secret_store: SecretStore | None = None,
+        translation_engine_manager: TranslationEngineManager | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -164,9 +166,14 @@ class MainWindow(QMainWindow):
         self.settings_repository = settings_repository
         self.engine_manager = engine_manager or EngineManager(self.settings.engine)
         self.secret_store = secret_store or SecretStore()
+        self.translation_engine_manager = translation_engine_manager or TranslationEngineManager(
+            self.settings.translation_engine,
+            runtime_root=self.engine_manager.runtime_root,
+        )
         self._selected_job_id: str | None = None
         self._running_job_id: str | None = None
         self._engine_operation_active = False
+        self._translation_engine_active = False
         self._active_tasks: set[BackgroundTask] = set()
         self._thread_pool = QThreadPool.globalInstance()
         self.setWindowTitle("聽序 HearFlow Studio v0.1.0")
@@ -286,6 +293,54 @@ class MainWindow(QMainWindow):
         engine_layout.setColumnStretch(2, 1)
         engine_layout.setColumnStretch(3, 1)
         outer.addWidget(engine_group)
+
+        translation_engine_group = QGroupBox("翻譯引擎（TranslateGemma）")
+        te_layout = QGridLayout(translation_engine_group)
+        self.te_state = QLabel("未啟用" if not self.settings.translation_engine.enabled else "檢查中")
+        self.te_state.setObjectName("metricValue")
+        self.te_detail = QLabel(
+            "在偏好設定啟用翻譯引擎後，可按「啟動」載入 TranslateGemma 4B。"
+            if not self.settings.translation_engine.enabled
+            else "正在檢查翻譯引擎狀態…"
+        )
+        self.te_detail.setProperty("muted", True)
+        self.te_model_value = QLabel(self.settings.translation_engine.model_id)
+        self.te_model_value.setObjectName("metricValue")
+        self.te_backend_value = QLabel(self.settings.translation_engine.backend.upper())
+        self.te_backend_value.setObjectName("metricValue")
+        self.te_port_value = QLabel(str(self.settings.translation_engine.port))
+        self.te_port_value.setObjectName("metricValue")
+        self.te_progress = QProgressBar()
+        self.te_progress.setRange(0, 100)
+        self.te_progress.setValue(0)
+        self.te_progress.setTextVisible(False)
+        self.start_te_button = QPushButton("啟動翻譯引擎")
+        self.start_te_button.setProperty("primary", True)
+        self.start_te_button.clicked.connect(self.start_translation_engine)
+        self.stop_te_button = QPushButton("停止")
+        self.stop_te_button.clicked.connect(self.stop_translation_engine)
+        te_check = QPushButton("重新檢查")
+        te_check.clicked.connect(self.check_translation_engine)
+        te_layout.addWidget(QLabel("狀態"), 0, 0)
+        te_layout.addWidget(self.te_state, 1, 0)
+        te_layout.addWidget(self.te_detail, 2, 0)
+        te_layout.addWidget(self.te_progress, 3, 0)
+        te_layout.addWidget(QLabel("模型"), 0, 1)
+        te_layout.addWidget(self.te_model_value, 1, 1, 2, 1)
+        te_layout.addWidget(QLabel("後端"), 0, 2)
+        te_layout.addWidget(self.te_backend_value, 1, 2, 2, 1)
+        te_layout.addWidget(QLabel("埠"), 0, 3)
+        te_layout.addWidget(self.te_port_value, 1, 3, 2, 1)
+        te_button_row = QHBoxLayout()
+        te_button_row.addWidget(self.start_te_button)
+        te_button_row.addWidget(self.stop_te_button)
+        te_button_row.addWidget(te_check)
+        te_layout.addLayout(te_button_row, 4, 0, 1, 4)
+        te_layout.setColumnStretch(0, 3)
+        te_layout.setColumnStretch(1, 2)
+        te_layout.setColumnStretch(2, 1)
+        te_layout.setColumnStretch(3, 1)
+        outer.addWidget(translation_engine_group)
 
         project_row = QHBoxLayout()
         project_row.addWidget(QLabel("專案資料夾"))
@@ -870,6 +925,126 @@ class MainWindow(QMainWindow):
         self.header_status.setText("● 引擎已停止")
         self.engine_progress.setRange(0, 100)
         self.engine_progress.setValue(0)
+
+    # ------------------------------------------------------------------
+    # Translation engine (TranslateGemma)
+    # ------------------------------------------------------------------
+
+    @Slot()
+    def start_translation_engine(self) -> None:
+        if self._translation_engine_active:
+            self.statusBar().showMessage("翻譯引擎作業正在進行，請稍候。", 4_000)
+            return
+        if not self.settings.translation_engine.enabled:
+            QMessageBox.information(
+                self,
+                "翻譯引擎未啟用",
+                "請先在偏好設定啟用翻譯引擎（TranslateGemma）。",
+            )
+            return
+        status = self.translation_engine_manager.installation_status()
+        if not status.get("llama_server_exists"):
+            QMessageBox.warning(
+                self,
+                "缺少 llama-server",
+                "找不到 llama-server；請先安裝本機辨識引擎。",
+            )
+            return
+        if not status.get("model_ready"):
+            QMessageBox.warning(
+                self,
+                "缺少翻譯模型",
+                "找不到 TranslateGemma / Gemma-3-4B-IT 模型。\n"
+                "請執行 .\\scripts\\install-engine.ps1 -InstallTranslationModel",
+            )
+            return
+        self.te_state.setText("啟動中")
+        self.te_detail.setText("正在載入 TranslateGemma 4B 模型…")
+        self.te_progress.setRange(0, 0)
+        self._translation_engine_active = True
+
+        def operation(progress: Callable[[str, int, str], None]) -> Any:
+            progress("inspect", 10, "正在啟動翻譯引擎…")
+            return self.translation_engine_manager.start()
+
+        task = self._run_background(
+            operation,
+            on_result=lambda _proc: self._translation_engine_started(),
+            busy_message="正在啟動翻譯引擎…",
+        )
+        task.signals.error.connect(self._translation_engine_failed)
+        task.signals.finished.connect(lambda: self._set_te_operation_active(False))
+
+    def _translation_engine_started(self) -> None:
+        self.te_state.setText("可使用")
+        self.te_detail.setText(
+            f"TranslateGemma 就緒 — {self.translation_engine_manager.base_url}"
+        )
+        self.te_progress.setRange(0, 100)
+        self.te_progress.setValue(100)
+        self.statusBar().showMessage("翻譯引擎已就緒", 5_000)
+
+    def _translation_engine_failed(self, message: str, _detail: str) -> None:
+        self._set_te_operation_active(False)
+        self.te_state.setText("啟動失敗")
+        self.te_detail.setText(message)
+        self.te_progress.setRange(0, 100)
+        self.te_progress.setValue(0)
+
+    def _set_te_operation_active(self, active: bool) -> None:
+        self._translation_engine_active = active
+        self.start_te_button.setEnabled(not active)
+        self.stop_te_button.setEnabled(not active)
+
+    @Slot()
+    def stop_translation_engine(self) -> None:
+        if self._translation_engine_active:
+            self.statusBar().showMessage("翻譯引擎作業正在進行，請稍候。", 4_000)
+            return
+        self._set_te_operation_active(True)
+        task = self._run_background(
+            lambda _progress: self.translation_engine_manager.stop(),
+            on_result=lambda _nothing: self._translation_engine_stopped(),
+            busy_message="正在停止翻譯引擎…",
+        )
+        task.signals.error.connect(self._translation_engine_failed)
+        task.signals.finished.connect(lambda: self._set_te_operation_active(False))
+
+    def _translation_engine_stopped(self) -> None:
+        self.te_state.setText("已停止")
+        self.te_detail.setText("翻譯引擎已安全停止。")
+        self.te_progress.setRange(0, 100)
+        self.te_progress.setValue(0)
+
+    @Slot()
+    def check_translation_engine(self) -> None:
+        if not self.settings.translation_engine.enabled:
+            self.te_state.setText("未啟用")
+            self.te_detail.setText("翻譯引擎未啟用。")
+            return
+        self.te_state.setText("檢查中")
+        self.te_progress.setRange(0, 0)
+
+        def operation(_progress: Callable[[str, int, str], None]) -> dict[str, Any]:
+            return self.translation_engine_manager.health()
+
+        self._run_background(
+            operation,
+            on_result=self._translation_engine_health_ready,
+            busy_message="正在檢查翻譯引擎…",
+            show_errors=False,
+        )
+
+    def _translation_engine_health_ready(self, report: dict[str, Any]) -> None:
+        ready = bool(report.get("ready"))
+        self.te_state.setText("可使用" if ready else "未就緒")
+        self.te_detail.setText(
+            f"TranslateGemma 就緒 — port {report.get('port')}"
+            if ready
+            else "翻譯引擎尚未啟動或無法連線。"
+        )
+        self.te_progress.setRange(0, 100)
+        self.te_progress.setValue(100 if ready else 0)
 
     @Slot()
     def save_segments(self) -> None:
