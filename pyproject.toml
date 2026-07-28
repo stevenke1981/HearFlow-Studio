@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hearflow-studio"
+version = "0.1.0"
+description = "Windows-first Qwen3-ASR subtitle transcription, translation, review, and export workstation."
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = {text = "MIT"}
+authors = [{name = "HearFlow Studio Contributors"}]
+dependencies = [
+  "PySide6>=6.8,<7",
+  "httpx>=0.28,<1",
+  "keyring>=25,<26",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<10",
+  "pytest-cov>=6,<7",
+  "pytest-qt>=4.4,<5",
+  "ruff>=0.11,<1",
+  "mypy>=1.15,<2",
+  "pyinstaller>=6.12,<7",
+]
+
+[project.scripts]
+hearflow = "hearflow.app:main"
+
+[tool.setuptools.packages.find]
+include = ["hearflow*"]
+
+[tool.setuptools.package-data]
+"hearflow.ui" = ["*.qss"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+qt_api = "pyside6"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+check_untyped_defs = true
+disallow_any_generics = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+exclude = ["third_party/", "build/", "dist/", ".venv/"]
+

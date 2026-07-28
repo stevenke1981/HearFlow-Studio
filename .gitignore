@@ -1,0 +1,28 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+# Build and release outputs
+build/
+dist/
+release/
+*.spec
+
+# User/runtime data and secrets
+runtime/*
+!runtime/.gitkeep
+*.env
+.env
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.gguf
+models/
+logs/
+projects/
+
+# Third-party build outputs
+third_party/qwen3-asr-llama-cpp/
+
