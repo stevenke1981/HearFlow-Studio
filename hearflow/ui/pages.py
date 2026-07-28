@@ -88,6 +88,7 @@ class WorkflowPage(QWidget):
             self.stage_list.addItem(item)
 
         left = QGroupBox("工作進度")
+        left.setProperty("zone", "asr")
         left.setMinimumWidth(220)
         left_layout = QVBoxLayout(left)
         left_layout.addWidget(self.progress)
@@ -373,6 +374,7 @@ class TranslationPage(QWidget):
         form.addRow("目標語言", self.target)
         form.addRow("翻譯風格", self.style)
         provider_group = QGroupBox("翻譯設定")
+        provider_group.setProperty("zone", "translation")
         provider_group.setLayout(form)
 
         self.glossary = QPlainTextEdit()
@@ -380,6 +382,7 @@ class TranslationPage(QWidget):
             "每行一組詞彙，例如：\nQwen3-ASR = Qwen3-ASR\nchunk = 片段"
         )
         glossary_group = QGroupBox("專案詞彙表")
+        glossary_group.setProperty("zone", "project")
         glossary_layout = QVBoxLayout(glossary_group)
         glossary_layout.addWidget(QLabel("詞彙表會作為翻譯提示；不會直接覆寫辨識原文。"))
         glossary_layout.addWidget(self.glossary)

@@ -85,10 +85,15 @@ QLabel[sectionTitle="true"] {
     font-weight: 700;
 }
 
+/* ============================================================
+   區塊（GroupBox）— 依功能分色
+   ============================================================ */
+
 QGroupBox {
     background: #ffffff;
     border: 1px solid #d9dfe7;
     border-radius: 8px;
+    border-left: 4px solid #d9dfe7;
     margin-top: 10px;
     padding: 14px 10px 10px 10px;
     font-weight: 600;
@@ -101,11 +106,60 @@ QGroupBox::title {
     color: #344054;
 }
 
+/* ASR 引擎區塊：藍色系 */
+QGroupBox[zone="asr"] {
+    background: #f0f6ff;
+    border-color: #b8d4f8;
+    border-left: 4px solid #155eef;
+}
+
+QGroupBox[zone="asr"]::title {
+    color: #155eef;
+}
+
+/* 翻譯引擎區塊：紫色系 */
+QGroupBox[zone="translation"] {
+    background: #f5f0ff;
+    border-color: #c9b8f8;
+    border-left: 4px solid #7c3aed;
+}
+
+QGroupBox[zone="translation"]::title {
+    color: #7c3aed;
+}
+
+/* 專案/媒體區塊：綠色系 */
+QGroupBox[zone="project"] {
+    background: #f0faf4;
+    border-color: #b8e8c8;
+    border-left: 4px solid #16a34a;
+}
+
+QGroupBox[zone="project"]::title {
+    color: #16a34a;
+}
+
+/* 輸出/報告區塊：橙色系 */
+QGroupBox[zone="output"] {
+    background: #fff8f0;
+    border-color: #f8d8b8;
+    border-left: 4px solid #ea580c;
+}
+
+QGroupBox[zone="output"]::title {
+    color: #ea580c;
+}
+
+/* 警告面板 */
 QFrame[warningPanel="true"] {
     background: #fff8e6;
     border: 1px solid #f4d58d;
     border-radius: 8px;
 }
+
+/* ============================================================
+   按鈕 — 依語義分色
+   ============================================================ */
 
 QPushButton {
     min-height: 30px;
@@ -113,6 +167,7 @@ QPushButton {
     border: 1px solid #bfc7d2;
     border-radius: 6px;
     padding: 2px 13px;
+    color: #344054;
 }
 
 QPushButton:hover {
@@ -130,6 +185,7 @@ QPushButton:disabled {
     border-color: #e1e5ea;
 }
 
+/* 主要動作（藍色） */
 QPushButton[primary="true"] {
     color: #ffffff;
     background: #155eef;
@@ -140,6 +196,62 @@ QPushButton[primary="true"] {
 QPushButton[primary="true"]:hover {
     background: #0b4bd4;
 }
+
+QPushButton[primary="true"]:pressed {
+    background: #0940b8;
+}
+
+/* 啟動/成功（綠色） */
+QPushButton[success="true"] {
+    color: #ffffff;
+    background: #16a34a;
+    border-color: #16a34a;
+    font-weight: 600;
+}
+
+QPushButton[success="true"]:hover {
+    background: #128a3e;
+}
+
+QPushButton[success="true"]:pressed {
+    background: #0f7534;
+}
+
+/* 停止/危險（紅色） */
+QPushButton[danger="true"] {
+    color: #ffffff;
+    background: #dc2626;
+    border-color: #dc2626;
+    font-weight: 600;
+}
+
+QPushButton[danger="true"]:hover {
+    background: #b91c1c;
+}
+
+QPushButton[danger="true"]:pressed {
+    background: #991b1b;
+}
+
+/* 警告/注意（橙色） */
+QPushButton[warning="true"] {
+    color: #ffffff;
+    background: #ea580c;
+    border-color: #ea580c;
+    font-weight: 600;
+}
+
+QPushButton[warning="true"]:hover {
+    background: #c2410c;
+}
+
+QPushButton[warning="true"]:pressed {
+    background: #9a3412;
+}
+
+/* ============================================================
+   輸入與表格
+   ============================================================ */
 
 QLineEdit, QComboBox, QPlainTextEdit, QTextEdit {
     background: #ffffff;
