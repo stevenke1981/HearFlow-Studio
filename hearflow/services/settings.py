@@ -96,7 +96,8 @@ class TranslationSettings:
     use_response_format: bool = True
 
     def __post_init__(self) -> None:
-        _validate_http_url(self.base_url, "translation base_url")
+        if self.enabled:
+            _validate_http_url(self.base_url, "translation base_url")
         if not self.provider_id.strip():
             raise ValueError("provider_id must not be empty")
         if self.enabled and not self.model.strip():
