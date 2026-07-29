@@ -439,6 +439,7 @@ class ReportsPage(QWidget):
 
     export_requested = Signal(str)
     burn_requested = Signal()
+    speech_requested = Signal()
     refresh_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -466,6 +467,9 @@ class ReportsPage(QWidget):
         self.burn_button.setProperty("primary", True)
         self.burn_button.setEnabled(False)
         self.burn_button.clicked.connect(self.burn_requested)
+        self.speech_button = QPushButton("產生語音（TTS，另存新檔）")
+        self.speech_button.setProperty("success", True)
+        self.speech_button.clicked.connect(self.speech_requested)
         self.report_list = QListWidget()
         refresh = QPushButton("重新整理檔案清單")
         refresh.clicked.connect(self.refresh_requested)
@@ -473,7 +477,11 @@ class ReportsPage(QWidget):
         layout.addWidget(title)
         layout.addWidget(subtitle)
         layout.addLayout(formats)
-        layout.addWidget(self.burn_button, alignment=Qt.AlignmentFlag.AlignLeft)
+        action_row = QHBoxLayout()
+        action_row.addWidget(self.burn_button)
+        action_row.addWidget(self.speech_button)
+        action_row.addStretch(1)
+        layout.addLayout(action_row)
         layout.addWidget(QLabel("報告與輸出"))
         layout.addWidget(self.report_list, 1)
         layout.addWidget(refresh, alignment=Qt.AlignmentFlag.AlignRight)

@@ -11,7 +11,7 @@ from typing import Any, Protocol
 from urllib.parse import urlsplit
 
 SETTINGS_KEY = "settings/app"
-SETTINGS_SCHEMA_VERSION = 1
+SETTINGS_SCHEMA_VERSION = 2
 SECRET_SERVICE_NAME = "HearFlow Studio"
 
 
@@ -49,6 +49,7 @@ class EngineSettings:
     model_repository: str = "ggml-org/Qwen3-ASR-0.6B-GGUF"
     model_quant: str = "Q8_0"
     gateway_url: str = "http://127.0.0.1:8000"
+    credential_id: str = "qwen-gateway"
     runtime_dir: str = "runtime"
     gateway_port: int = 8000
     llama_port: int = 8080
@@ -63,6 +64,7 @@ class EngineSettings:
         if self.backend not in {"cpu", "cuda", "vulkan"}:
             raise ValueError("engine backend must be cpu, cuda, or vulkan")
         _validate_http_url(self.gateway_url, "gateway_url")
+        _validate_credential_id(self.credential_id)
         if self.mode == "managed" and not _is_loopback_url(self.gateway_url):
             raise ValueError("managed gateway_url must use 127.0.0.1 or localhost")
         if not self.model_id.strip():
@@ -79,12 +81,48 @@ class EngineSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class RemoteTranscriptionSettings:
+    """Remote speech-to-text configuration without credentials."""
+
+    enabled: bool = False
+    provider_id: str = "openai"
+    credential_id: str = "openai"
+    base_url: str = ""
+    model: str = ""
+    language: str = "auto"
+    prompt: str = ""
+    response_format: str = "json"
+    temperature: float = 0.0
+    max_file_bytes: int = 20 * 1024 * 1024
+    http_referer: str = ""
+    app_title: str = "HearFlow Studio"
+
+    def __post_init__(self) -> None:
+        if not self.provider_id.strip():
+            raise ValueError("remote transcription provider_id must not be empty")
+        _validate_credential_id(self.credential_id)
+        if self.base_url.strip():
+            _validate_http_url(self.base_url, "remote transcription base_url")
+        if self.enabled and not self.model.strip() and self.provider_id == "custom-openai":
+            raise ValueError("custom remote transcription model must not be empty")
+        if not self.language.strip():
+            raise ValueError("remote transcription language must not be empty")
+        if self.response_format not in {"json", "verbose_json", "diarized_json"}:
+            raise ValueError("remote transcription response_format is unsupported")
+        _validate_temperature(self.temperature, "remote transcription temperature", maximum=1)
+        if not 1_048_576 <= self.max_file_bytes <= 2_147_483_648:
+            raise ValueError("remote transcription max_file_bytes must be 1 MiB to 2 GiB")
+        _validate_optional_http_url(self.http_referer, "remote transcription http_referer")
+
+
+@dataclass(frozen=True, slots=True)
 class TranslationSettings:
     """OpenAI-compatible translation settings without an API key."""
 
     enabled: bool = False
-    provider_id: str = "default"
-    base_url: str = "http://127.0.0.1:11434/v1"
+    provider_id: str = "openai"
+    credential_id: str = "openai"
+    base_url: str = ""
     model: str = ""
     source_language: str = "auto"
     target_language: str = "繁體中文（台灣）"
@@ -94,31 +132,30 @@ class TranslationSettings:
     temperature: float = 0.2
     max_retries: int = 2
     use_response_format: bool = True
+    http_referer: str = ""
+    app_title: str = "HearFlow Studio"
 
     def __post_init__(self) -> None:
-        if self.enabled:
-            _validate_http_url(self.base_url, "translation base_url")
         if not self.provider_id.strip():
-            raise ValueError("provider_id must not be empty")
-        if self.enabled and not self.model.strip():
-            raise ValueError("translation model must not be empty when enabled")
+            raise ValueError("translation provider_id must not be empty")
+        _validate_credential_id(self.credential_id)
+        if self.base_url.strip():
+            _validate_http_url(self.base_url, "translation base_url")
+        if self.enabled and not self.model.strip() and self.provider_id == "custom-openai":
+            raise ValueError("custom translation model must not be empty")
         if not self.target_language.strip():
             raise ValueError("translation target_language must not be empty")
-        if not (1 <= self.batch_size <= 200):
+        if not 1 <= self.batch_size <= 200:
             raise ValueError("translation batch_size must be between 1 and 200")
-        if (
-            isinstance(self.temperature, bool)
-            or not math.isfinite(float(self.temperature))
-            or not 0.0 <= float(self.temperature) <= 2.0
-        ):
-            raise ValueError("translation temperature must be between 0 and 2")
+        _validate_temperature(self.temperature, "translation temperature", maximum=2)
         if not 0 <= self.max_retries <= 10:
             raise ValueError("translation max_retries must be between 0 and 10")
+        _validate_optional_http_url(self.http_referer, "translation http_referer")
 
 
 @dataclass(frozen=True, slots=True)
 class TranslationEngineSettings:
-    """Managed llama.cpp translation engine (TranslateGemma) settings."""
+    """Managed llama.cpp translation engine settings."""
 
     enabled: bool = False
     backend: str = "cuda"
@@ -141,25 +178,80 @@ class TranslationEngineSettings:
             raise ValueError("translation engine model repository and quant must not be empty")
         if not 1 <= self.port <= 65535:
             raise ValueError("translation engine port must be between 1 and 65535")
-        for name in ("threads", "context_size", "batch_size", "micro_batch_size", "gpu_layers"):
-            if getattr(self, name) < 0:
-                raise ValueError(f"translation engine {name} must not be negative")
+        for name in ("threads", "context_size", "batch_size", "micro_batch_size"):
+            if getattr(self, name) <= 0:
+                raise ValueError(f"translation engine {name} must be positive")
+        if self.gpu_layers < 0:
+            raise ValueError("translation engine gpu_layers must not be negative")
+
+
+@dataclass(frozen=True, slots=True)
+class SpeechSettings:
+    """Local Qwen3-TTS or remote text-to-speech settings without credentials."""
+
+    enabled: bool = False
+    mode: str = "local"
+    provider_id: str = "openai"
+    credential_id: str = "openai"
+    base_url: str = ""
+    model: str = "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"
+    voice: str = "Vivian"
+    language: str = "Chinese"
+    output_format: str = "wav"
+    speed: float = 1.0
+    instructions: str = ""
+    max_chars_per_request: int = 1600
+    local_executable: str = ""
+    local_model_dir: str = ""
+    local_backend: str = "candle"
+    local_talker_backend: str = "safetensors"
+    local_talker_gguf: str = ""
+    http_referer: str = ""
+    app_title: str = "HearFlow Studio"
+
+    def __post_init__(self) -> None:
+        if self.mode not in {"local", "remote"}:
+            raise ValueError("speech mode must be local or remote")
+        if not self.provider_id.strip():
+            raise ValueError("speech provider_id must not be empty")
+        _validate_credential_id(self.credential_id)
+        if self.base_url.strip():
+            _validate_http_url(self.base_url, "speech base_url")
+        if self.mode == "local" and not self.model.strip():
+            raise ValueError("local speech model must not be empty")
+        if self.mode == "remote" and self.provider_id == "custom-openai" and not self.model.strip():
+            raise ValueError("custom remote speech model must not be empty")
+        if not self.language.strip():
+            raise ValueError("speech language must not be empty")
+        if self.output_format not in {"wav", "mp3", "pcm", "aac", "flac", "opus"}:
+            raise ValueError("speech output_format is unsupported")
+        if isinstance(self.speed, bool) or not math.isfinite(float(self.speed)):
+            raise ValueError("speech speed must be a finite number")
+        if not 0.25 <= float(self.speed) <= 4.0:
+            raise ValueError("speech speed must be between 0.25 and 4.0")
+        if not 100 <= self.max_chars_per_request <= 10_000:
+            raise ValueError("speech max_chars_per_request must be between 100 and 10000")
+        if self.local_backend not in {"candle", "python"}:
+            raise ValueError("speech local_backend must be candle or python")
+        if self.local_talker_backend not in {"safetensors", "gguf"}:
+            raise ValueError("speech local_talker_backend must be safetensors or gguf")
+        _validate_optional_http_url(self.http_referer, "speech http_referer")
 
 
 @dataclass(frozen=True, slots=True)
 class AppSettings:
-    """Complete persistable application settings.
-
-    Secrets deliberately have no field in this model. They are referenced by a
-    provider id and stored through :class:`SecretStore`.
-    """
+    """Complete persistable application settings with no secret material."""
 
     schema_version: int = SETTINGS_SCHEMA_VERSION
     engine: EngineSettings = field(default_factory=EngineSettings)
+    remote_transcription: RemoteTranscriptionSettings = field(
+        default_factory=RemoteTranscriptionSettings
+    )
     translation: TranslationSettings = field(default_factory=TranslationSettings)
     translation_engine: TranslationEngineSettings = field(
-        default_factory=TranslationEngineSettings,
+        default_factory=TranslationEngineSettings
     )
+    speech: SpeechSettings = field(default_factory=SpeechSettings)
     recent_projects: tuple[str, ...] = ()
     last_project_dir: str = ""
 
@@ -176,11 +268,7 @@ class AppSettings:
 
 
 class SecretStore:
-    """Store provider credentials in the platform keyring.
-
-    On Windows, the default ``keyring`` backend is Windows Credential Manager.
-    Tests can inject an in-memory backend and never touch the user's vault.
-    """
+    """Store provider credentials in the platform keyring."""
 
     def __init__(
         self,
@@ -230,8 +318,6 @@ class SecretStore:
             raise SecretStoreError("無法從 Windows Credential Manager 刪除金鑰。") from exc
         return True
 
-    # Explicit aliases make call sites self-documenting and preserve the
-    # reference-contract terminology.
     save_provider_key = save
     load_provider_key = load
     delete_provider_key = delete
@@ -286,7 +372,6 @@ class SettingsRepository:
             status = getattr(self._backend, "status", None)
             if callable(status):
                 result = status()
-                # QSettings.NoError is integer-compatible and equals zero.
                 if int(result) != 0:
                     raise SettingsError("QSettings 回報寫入失敗。")
         except SettingsError:
@@ -304,47 +389,87 @@ def settings_to_dict(settings: AppSettings) -> dict[str, Any]:
 
 
 def settings_from_dict(payload: Mapping[str, Any]) -> AppSettings:
-    """Validate and construct :class:`AppSettings` from persisted JSON."""
+    """Validate, migrate, and construct :class:`AppSettings`."""
 
     if not isinstance(payload, Mapping):
         raise TypeError("settings payload must be an object")
-    allowed = {field.name for field in fields(AppSettings)}
-    unknown = set(payload) - allowed
+    migrated = _migrate_settings(payload)
+    allowed = {item.name for item in fields(AppSettings)}
+    unknown = set(migrated) - allowed
     if unknown:
         raise ValueError(f"unknown settings fields: {', '.join(sorted(unknown))}")
 
-    schema_version = _strict_int(
-        payload.get("schema_version", SETTINGS_SCHEMA_VERSION), "schema_version"
+    schema_version = _strict_int(migrated["schema_version"], "schema_version")
+    engine = _dataclass_from_mapping(EngineSettings, migrated.get("engine", {}))
+    remote_transcription = _dataclass_from_mapping(
+        RemoteTranscriptionSettings,
+        migrated.get("remote_transcription", {}),
     )
-    engine = _dataclass_from_mapping(EngineSettings, payload.get("engine", {}))
-    translation = _dataclass_from_mapping(TranslationSettings, payload.get("translation", {}))
+    translation = _dataclass_from_mapping(
+        TranslationSettings,
+        migrated.get("translation", {}),
+    )
     translation_engine = _dataclass_from_mapping(
-        TranslationEngineSettings, payload.get("translation_engine", {}),
+        TranslationEngineSettings,
+        migrated.get("translation_engine", {}),
     )
+    speech = _dataclass_from_mapping(SpeechSettings, migrated.get("speech", {}))
 
-    recent_raw = payload.get("recent_projects", ())
+    recent_raw = migrated.get("recent_projects", ())
     if not isinstance(recent_raw, (list, tuple)) or not all(
         isinstance(item, str) for item in recent_raw
     ):
         raise TypeError("recent_projects must be a list of strings")
-    last_project_dir = payload.get("last_project_dir", "")
+    last_project_dir = migrated.get("last_project_dir", "")
     if not isinstance(last_project_dir, str):
         raise TypeError("last_project_dir must be a string")
 
     return AppSettings(
         schema_version=schema_version,
         engine=engine,
+        remote_transcription=remote_transcription,
         translation=translation,
         translation_engine=translation_engine,
+        speech=speech,
         recent_projects=tuple(recent_raw),
         last_project_dir=last_project_dir,
     )
 
 
+def _migrate_settings(payload: Mapping[str, Any]) -> dict[str, Any]:
+    migrated = dict(payload)
+    version = migrated.get("schema_version", 1)
+    if isinstance(version, bool) or not isinstance(version, int):
+        raise TypeError("schema_version must be an integer")
+    if version == 1:
+        translation_raw = migrated.get("translation", {})
+        translation = dict(translation_raw) if isinstance(translation_raw, Mapping) else {}
+        legacy_provider_id = str(translation.get("provider_id") or "default")
+        # Version 1 used provider_id as both provider identity and credential key.
+        # Its default value meant "generic OpenAI-compatible endpoint", not a
+        # real provider, so migrate it to the explicit custom profile while
+        # preserving the old Credential Manager lookup name.
+        translation.setdefault("credential_id", legacy_provider_id)
+        if legacy_provider_id == "default":
+            translation["provider_id"] = "custom-openai"
+        translation.setdefault("http_referer", "")
+        translation.setdefault("app_title", "HearFlow Studio")
+        migrated["translation"] = translation
+        migrated.setdefault("remote_transcription", {})
+        migrated.setdefault("speech", {})
+        migrated["schema_version"] = 2
+        version = 2
+    if version != SETTINGS_SCHEMA_VERSION:
+        raise ValueError(
+            f"unsupported settings schema {version}; expected {SETTINGS_SCHEMA_VERSION}"
+        )
+    return migrated
+
+
 def _dataclass_from_mapping[T](cls: type[T], raw: Any) -> T:
     if not isinstance(raw, Mapping):
         raise TypeError(f"{cls.__name__} settings must be an object")
-    allowed = {field.name for field in fields(cls)}
+    allowed = {item.name for item in fields(cls)}
     unknown = set(raw) - allowed
     if unknown:
         raise ValueError(f"unknown {cls.__name__} fields: {', '.join(sorted(unknown))}")
@@ -375,6 +500,18 @@ def _validate_http_url(value: str, name: str) -> None:
         raise ValueError(f"{name} must not contain credentials")
     if parsed.query or parsed.fragment:
         raise ValueError(f"{name} must not contain a query or fragment")
+
+
+def _validate_optional_http_url(value: str, name: str) -> None:
+    if value.strip():
+        _validate_http_url(value, name)
+
+
+def _validate_temperature(value: float, name: str, *, maximum: float) -> None:
+    if isinstance(value, bool) or not math.isfinite(float(value)):
+        raise ValueError(f"{name} must be finite")
+    if not 0.0 <= float(value) <= maximum:
+        raise ValueError(f"{name} must be between 0 and {maximum:g}")
 
 
 def _is_loopback_url(value: str) -> bool:

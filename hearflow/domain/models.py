@@ -58,6 +58,7 @@ class ArtifactKind(StrEnum):
     SUBTITLE = "subtitle"
     EXPORT = "export"
     BURNED_VIDEO = "burned_video"
+    SPEECH = "speech"
     REPORT = "report"
     LOG = "log"
 

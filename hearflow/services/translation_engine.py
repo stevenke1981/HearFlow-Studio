@@ -97,26 +97,24 @@ class TranslationEngineManager:
         ]
         llama = next((p for p in candidates if p.is_file()), candidates[0])
 
-        model_dir = runtime / "models"
-        model_name = self.settings.model_id
-        models = sorted(
-            p
-            for p in model_dir.glob("*.gguf")
-            if "mmproj" not in p.name.casefold()
-            and model_name.replace("-", "").casefold() in p.name.replace("-", "").casefold()
-        )
-        if not models:
-            models = sorted(
-                p
-                for p in model_dir.glob("*gemma*/*.gguf")
-                if "mmproj" not in p.name.casefold()
+        translation_model_dir = runtime / "models" / "translation"
+        legacy_model_dir = runtime / "models"
+        normalized_model = self.settings.model_id.replace("-", "").casefold()
+        models: list[Path] = []
+        for model_dir in (translation_model_dir, legacy_model_dir):
+            candidates = sorted(
+                path
+                for path in model_dir.rglob("*.gguf")
+                if "mmproj" not in path.name.casefold()
+                and (
+                    normalized_model in path.name.replace("-", "").casefold()
+                    or "gemma" in path.name.casefold()
+                    or "translate" in path.name.casefold()
+                )
             )
-        if not models:
-            models = sorted(
-                p
-                for p in model_dir.glob("*gemma*.gguf")
-                if "mmproj" not in p.name.casefold()
-            )
+            if candidates:
+                models = candidates
+                break
         return TranslationEnginePaths(
             runtime=runtime,
             llama_server=llama,
@@ -187,6 +185,9 @@ class TranslationEngineManager:
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = (log_dir / "managed-translation.log").open("ab", buffering=0)
 
+        gpu_layers = (
+            0 if self.settings.backend == "cpu" else self.settings.gpu_layers
+        )
         args = [
             str(paths.llama_server),
             "--host",
@@ -210,7 +211,7 @@ class TranslationEngineManager:
             "--parallel",
             "1",
             "--n-gpu-layers",
-            str(self.settings.gpu_layers),
+            str(gpu_layers),
             "--timeout",
             "3600",
             "--jinja",

@@ -107,6 +107,7 @@ class TranscriptionOptions:
     language: str = "auto"
     prompt: str = ""
     temperature: float = 0.0
+    duration_seconds: float = 0.0
 
     def __post_init__(self) -> None:
         if not isinstance(self.model, str) or not self.model.strip():
@@ -124,6 +125,13 @@ class TranscriptionOptions:
             or not 0.0 <= float(self.temperature) <= 1.0
         ):
             raise ValueError("temperature must be between 0.0 and 1.0")
+        if (
+            isinstance(self.duration_seconds, bool)
+            or not isinstance(self.duration_seconds, (int, float))
+            or not math.isfinite(float(self.duration_seconds))
+            or float(self.duration_seconds) < 0.0
+        ):
+            raise ValueError("duration_seconds must be a non-negative finite number")
 
 
 class QwenGatewayClient:

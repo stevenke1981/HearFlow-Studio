@@ -105,13 +105,15 @@ class DisabledTranslator:
 
 
 class OpenAICompatibleTranslator:
-    """Translate JSON batches through OpenAI, Ollama, LM Studio, or compatible APIs."""
+    """Translate JSON batches through local or remote OpenAI-compatible APIs."""
 
     def __init__(
         self,
         settings: TranslationSettings,
         secret_store: SecretStore,
         *,
+        api_key: str | None = None,
+        extra_headers: Mapping[str, str] | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
         timeout: httpx.Timeout | float = 120.0,
         backoff_base_seconds: float = 0.25,
@@ -122,8 +124,12 @@ class OpenAICompatibleTranslator:
             raise TranslationConfigurationError("翻譯未啟用；請改用 DisabledTranslator。")
         if backoff_base_seconds < 0:
             raise ValueError("backoff_base_seconds must not be negative")
+        if api_key is not None and not isinstance(api_key, str):
+            raise TypeError("api_key must be a string or None")
         self.settings = settings
         self._secret_store = secret_store
+        self._explicit_api_key = api_key
+        self._extra_headers = dict(extra_headers or {})
         self._transport = transport
         self._timeout = timeout
         self._backoff_base_seconds = backoff_base_seconds
@@ -143,19 +149,22 @@ class OpenAICompatibleTranslator:
         segments: Sequence[SubtitleSegment] | Sequence[Mapping[str, Any]],
         cancellation: CancellationToken | None = None,
     ) -> list[Translation]:
-        """Asynchronous implementation with per-batch bounded retries."""
-
         parsed = _parse_source_segments(segments)
         if not parsed:
             return []
         cancellation = cancellation or CancellationToken()
         cancellation.raise_if_cancelled()
-        api_key = self._secret_store.load_provider_key(self.settings.provider_id)
+        api_key = self._explicit_api_key
+        if api_key is None:
+            credential_id = self.settings.credential_id
+            if credential_id == "openai" and self.settings.provider_id != "openai":
+                credential_id = self.settings.provider_id
+            api_key = self._secret_store.load_provider_key(credential_id)
         if not api_key and not _is_local_provider(self._endpoint):
             raise TranslationConfigurationError(
                 "遠端翻譯服務必須先在 Windows Credential Manager 儲存 API 金鑰。"
             )
-        headers = {"Content-Type": "application/json"}
+        headers = {"Content-Type": "application/json", **self._extra_headers}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 
@@ -195,7 +204,6 @@ class OpenAICompatibleTranslator:
                             status=TranslationStatus.COMPLETED,
                             attempts=attempts,
                         )
-
         return [outcomes[item.id] for item in parsed]
 
     async def _translate_batch_with_retry(
@@ -222,19 +230,13 @@ class OpenAICompatibleTranslator:
             except RequestCancelled:
                 raise
             except httpx.TimeoutException:
-                last_error = TranslationProviderError(
-                    "翻譯服務逾時。",
-                    retryable=True,
-                )
+                last_error = TranslationProviderError("翻譯服務逾時。", retryable=True)
             except httpx.RequestError:
-                last_error = TranslationProviderError(
-                    "無法連線到翻譯服務。",
-                    retryable=True,
-                )
+                last_error = TranslationProviderError("無法連線到翻譯服務。", retryable=True)
             except TranslationProviderError as exc:
                 last_error = exc
             except TranslationProtocolError as exc:
-                # A fresh completion can repair malformed/missing JSON.
+                # A fresh completion can repair malformed or missing JSON.
                 last_error = exc
 
             retryable = not isinstance(last_error, TranslationProviderError) or (

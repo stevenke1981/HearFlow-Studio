@@ -44,15 +44,16 @@ from PySide6.QtWidgets import (
 from hearflow.application.workflow import StudioWorkflow
 from hearflow.domain.models import ArtifactKind, ExportOptions, JobStatus
 from hearflow.services.engine import EngineManager, application_root
-from hearflow.services.gateway import QwenGatewayClient
-from hearflow.services.settings import AppSettings, SecretStore, SettingsRepository
-from hearflow.services.translation import DisabledTranslator, OpenAICompatibleTranslator
-from hearflow.services.translation_engine import TranslationEngineManager
-from hearflow.ui.dialogs import (
-    EnvironmentReportDialog,
-    NewProjectDialog,
-    SettingsDialog,
+from hearflow.services.service_factory import (
+    build_speech_synthesizer,
+    build_transcription_client,
+    build_translator,
 )
+from hearflow.services.settings import AppSettings, SecretStore, SettingsRepository
+from hearflow.services.speech import SpeechRenderService
+from hearflow.services.translation_engine import TranslationEngineManager
+from hearflow.ui.dialogs import EnvironmentReportDialog, NewProjectDialog
+from hearflow.ui.settings_v2 import SettingsDialog
 from hearflow.ui.pages import (
     EditorPage,
     FilesPage,
@@ -172,11 +173,12 @@ class MainWindow(QMainWindow):
         )
         self._selected_job_id: str | None = None
         self._running_job_id: str | None = None
+        self._running_operation: str | None = None
         self._engine_operation_active = False
         self._translation_engine_active = False
         self._active_tasks: set[BackgroundTask] = set()
         self._thread_pool = QThreadPool.globalInstance()
-        self.setWindowTitle("聽序 HearFlow Studio v0.1.0")
+        self.setWindowTitle("聽序 HearFlow Studio v0.2.0")
         self.resize(1520, 920)
         self.setMinimumSize(1180, 700)
         self._build_menu()
@@ -421,6 +423,7 @@ class MainWindow(QMainWindow):
         self.translation_page.project_settings_requested.connect(self.apply_translation_page)
         self.reports_page.export_requested.connect(self.export_selected_format)
         self.reports_page.burn_requested.connect(self.burn_subtitles)
+        self.reports_page.speech_requested.connect(self.synthesize_speech)
         self.reports_page.refresh_requested.connect(self.refresh_files)
         self.segment_model.validation_error.connect(
             lambda message: self.statusBar().showMessage(message, 6_000)
@@ -624,6 +627,7 @@ class MainWindow(QMainWindow):
             return
         job_id = self._selected_job_id
         self._running_job_id = job_id
+        self._running_operation = "pipeline"
         self._refresh_engine_controls()
         self.workflow_page.set_running(True)
         self.engine_progress.setRange(0, 100)
@@ -656,6 +660,7 @@ class MainWindow(QMainWindow):
 
     def _finish_job_ui(self) -> None:
         self._running_job_id = None
+        self._running_operation = None
         self._refresh_engine_controls()
         self.workflow_page.set_running(False)
 
@@ -665,11 +670,14 @@ class MainWindow(QMainWindow):
         if job_id is None:
             return
         if self.workflow.cancel_job(job_id):
-            message = (
-                "已送出取消要求；HearFlow 會終止本機推論程序並重新載入引擎，完成後即可安全重試。"
-                if self.settings.engine.mode == "managed"
-                else "已送出取消要求；外部 Gateway 可能仍會完成本次推論，但較晚結果不會寫入。"
-            )
+            if self._running_operation == "speech":
+                message = "已送出取消要求；語音合成會在安全邊界停止，轉錄狀態不會被改動。"
+            else:
+                message = (
+                    "已送出取消要求；HearFlow 會終止本機推論程序並重新載入引擎，完成後即可安全重試。"
+                    if self.settings.engine.mode == "managed"
+                    else "已送出取消要求；外部 Gateway 可能仍會完成本次推論，但較晚結果不會寫入。"
+                )
             self.workflow_page.append_log(message)
             self.workflow_page.set_progress("asr", 0, "正在安全取消工作…")
 
@@ -1134,6 +1142,48 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"已輸出：{path.name}", 6_000)
 
     @Slot()
+    def synthesize_speech(self) -> None:
+        repository = self.workflow.repository
+        if repository is None or self._selected_job_id is None:
+            QMessageBox.information(self, "尚未選取", "請先選擇有逐字稿的媒體項目。")
+            return
+        if not self.settings.speech.enabled:
+            QMessageBox.information(
+                self,
+                "TTS 尚未啟用",
+                "請先在偏好設定啟用本機 Qwen3-TTS 或遠端 TTS 供應商。",
+            )
+            return
+        if self._running_job_id is not None:
+            QMessageBox.information(self, "工作執行中", "請等待目前工作完成或先取消。")
+            return
+        segments = repository.load_segments(self._selected_job_id)
+        if not segments:
+            QMessageBox.information(self, "沒有文字", "請先完成轉錄或匯入字幕。")
+            return
+        job_id = self._selected_job_id
+        self._running_job_id = job_id
+        self._running_operation = "speech"
+        self._refresh_engine_controls()
+        self.workflow_page.set_running(True)
+        self.workflow_page.set_progress("speech", 5, "正在準備語音合成…")
+
+        task = self._run_background(
+            lambda progress: self.workflow.synthesize_job_speech(
+                job_id,
+                prefer_translation=True,
+                progress=progress,
+            ),
+            on_result=self._speech_complete,
+            busy_message="正在產生語音…",
+        )
+        task.signals.finished.connect(self._finish_job_ui)
+
+    def _speech_complete(self, path: Path) -> None:
+        self.refresh_files()
+        QMessageBox.information(self, "語音已完成", f"已另存語音檔：\n{path}")
+
+    @Slot()
     def burn_subtitles(self) -> None:
         repository = self.workflow.repository
         if repository is None or self._selected_job_id is None:
@@ -1237,44 +1287,58 @@ class MainWindow(QMainWindow):
         dialog = SettingsDialog(self.settings, self)
         if dialog.exec() != dialog.DialogCode.Accepted:
             return
+        runtime_root = self.engine_manager.runtime_root
         try:
             updated = dialog.build_settings()
-            translation_key = dialog.translation_api_key.text()
-            if translation_key:
-                self.secret_store.save_provider_key(
-                    updated.translation.provider_id,
-                    translation_key,
-                )
+            candidate_engine = EngineManager(updated.engine, runtime_root=runtime_root)
+            candidate_translation = TranslationEngineManager(
+                updated.translation_engine,
+                runtime_root=runtime_root,
+            )
+            candidate_gateway = build_transcription_client(
+                updated,
+                candidate_engine,
+                self.secret_store,
+            )
+            candidate_translator = build_translator(
+                updated,
+                self.secret_store,
+                candidate_translation,
+            )
+            candidate_speech = build_speech_synthesizer(
+                updated,
+                self.secret_store,
+                runtime_root=runtime_root,
+            )
+            for credential_id, secret in dialog.secret_values().items():
+                self.secret_store.save_provider_key(credential_id, secret)
             if self.settings_repository is not None:
                 self.settings_repository.save(updated)
+            self.engine_manager.stop()
+            self.translation_engine_manager.stop()
         except Exception as exc:
             QMessageBox.critical(self, "無法儲存設定", str(exc))
             return
+
         self.settings = updated
-        session_key = dialog.gateway_key.text()
-        runtime_root = self.engine_manager.runtime_root
-        self.engine_manager.stop()
-        self.engine_manager = EngineManager(updated.engine, runtime_root=runtime_root)
-        self.workflow.gateway = (
-            self.engine_manager.client
-            if updated.engine.mode == "managed"
-            else QwenGatewayClient(
-                updated.engine.gateway_url,
-                api_key=session_key or None,
-                timeout=120.0,
-            )
-        )
-        self.workflow.translator = (
-            OpenAICompatibleTranslator(updated.translation, self.secret_store)
-            if updated.translation.enabled
-            else DisabledTranslator()
+        self.engine_manager = candidate_engine
+        self.translation_engine_manager = candidate_translation
+        self.workflow.gateway = candidate_gateway
+        self.workflow.translator = candidate_translator
+        self.workflow.speech = SpeechRenderService(
+            candidate_speech,
+            ffmpeg_bin=str(self.workflow.media.ffmpeg_bin),
         )
         self.workflow.cancel_backend = (
             self.engine_manager.cancel_and_restart if updated.engine.mode == "managed" else None
         )
         self.model_value.setText(updated.engine.model_id)
         self.backend_value.setText(updated.engine.backend.upper())
+        self.te_model_value.setText(updated.translation_engine.model_id)
+        self.te_backend_value.setText(updated.translation_engine.backend.upper())
+        self.te_port_value.setText(str(updated.translation_engine.port))
         self.check_environment()
+        self.check_translation_engine()
 
     @Slot()
     def open_project_folder(self) -> None:
@@ -1347,5 +1411,6 @@ class MainWindow(QMainWindow):
                 return
             self.cancel_current_job()
         self.engine_manager.stop()
+        self.translation_engine_manager.stop()
         self.workflow.close_project()
         event.accept()
