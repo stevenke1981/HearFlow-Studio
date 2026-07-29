@@ -6,6 +6,12 @@ on:
       - agent/multiengine-local-cuda-remote-providers
     paths:
       - .hearflow-upgrade-bundle/TRIGGER
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+    paths:
+      - .hearflow-upgrade-bundle/TRIGGER
 
 permissions:
   contents: write
@@ -24,6 +30,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: true
+          ref: ${{ github.head_ref || github.ref_name }}
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
