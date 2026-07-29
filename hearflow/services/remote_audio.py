@@ -652,9 +652,7 @@ class RemoteSpeechSynthesizer:
             "generationConfig": {
                 "responseModalities": ["AUDIO"],
                 "speechConfig": {
-                    "voiceConfig": {
-                        "prebuiltVoiceConfig": {"voiceName": voice or "Kore"}
-                    }
+                    "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice or "Kore"}}
                 },
             },
         }
@@ -676,8 +674,7 @@ class RemoteSpeechSynthesizer:
             audio_part = next(
                 part
                 for part in parts
-                if isinstance(part, Mapping)
-                and ("inlineData" in part or "inline_data" in part)
+                if isinstance(part, Mapping) and ("inlineData" in part or "inline_data" in part)
             )
             inline = audio_part.get("inlineData") or audio_part["inline_data"]
             raw = base64.b64decode(str(inline["data"]), validate=True)
@@ -873,17 +870,14 @@ def _estimate_segments(text: str, duration: float) -> list[dict[str, Any]]:
     if not normalized:
         return []
     sentence_parts = [
-        item.strip()
-        for item in re.split(r"(?<=[。！？.!?])\s*|\n+", normalized)
-        if item.strip()
+        item.strip() for item in re.split(r"(?<=[。！？.!?])\s*|\n+", normalized) if item.strip()
     ]
     pieces: list[str] = []
     for sentence in sentence_parts or [normalized]:
         remaining = sentence
         while len(remaining) > 42:
             boundary = max(
-                remaining.rfind(mark, 0, 43)
-                for mark in ("，", ",", "；", ";", "、", " ")
+                remaining.rfind(mark, 0, 43) for mark in ("，", ",", "；", ";", "、", " ")
             )
             if boundary < 14:
                 boundary = 42
@@ -987,7 +981,6 @@ def _join_words(words: list[str]) -> str:
     return text.strip()
 
 
-
 def _normalize_xai_language(value: str) -> str:
     """Return an xAI-compatible BCP-47 language code."""
 
@@ -1019,6 +1012,7 @@ def _normalize_xai_language(value: str) -> str:
         language, region = normalized.split("-", 1)
         return f"{language.casefold()}-{region.upper()}"
     return normalized
+
 
 def _split_keyterms(prompt: str) -> tuple[str, ...]:
     normalized = prompt.replace("\r", "\n").replace("，", ",")

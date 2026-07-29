@@ -301,7 +301,9 @@ class MainWindow(QMainWindow):
         translation_engine_group = QGroupBox("翻譯引擎（TranslateGemma）")
         translation_engine_group.setProperty("zone", "translation")
         te_layout = QGridLayout(translation_engine_group)
-        self.te_state = QLabel("未啟用" if not self.settings.translation_engine.enabled else "檢查中")
+        self.te_state = QLabel(
+            "未啟用" if not self.settings.translation_engine.enabled else "檢查中"
+        )
         self.te_state.setObjectName("metricValue")
         self.te_detail = QLabel(
             "在偏好設定啟用翻譯引擎後，可按「啟動」載入 TranslateGemma 4B。"
@@ -989,9 +991,7 @@ class MainWindow(QMainWindow):
 
     def _translation_engine_started(self) -> None:
         self.te_state.setText("可使用")
-        self.te_detail.setText(
-            f"TranslateGemma 就緒 — {self.translation_engine_manager.base_url}"
-        )
+        self.te_detail.setText(f"TranslateGemma 就緒 — {self.translation_engine_manager.base_url}")
         self.te_progress.setRange(0, 100)
         self.te_progress.setValue(100)
         self.statusBar().showMessage("翻譯引擎已就緒", 5_000)

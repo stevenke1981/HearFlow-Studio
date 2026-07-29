@@ -67,9 +67,7 @@ class TranslationEngineManager:
     ) -> None:
         self.settings = settings
         self.runtime_root = (
-            Path(runtime_root or _application_root() / "runtime")
-            .expanduser()
-            .resolve(strict=False)
+            Path(runtime_root or _application_root() / "runtime").expanduser().resolve(strict=False)
         )
         self.api_key = api_key or secrets.token_urlsafe(32)
         self.process: TranslationProcess | None = None
@@ -185,9 +183,7 @@ class TranslationEngineManager:
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = (log_dir / "managed-translation.log").open("ab", buffering=0)
 
-        gpu_layers = (
-            0 if self.settings.backend == "cpu" else self.settings.gpu_layers
-        )
+        gpu_layers = 0 if self.settings.backend == "cpu" else self.settings.gpu_layers
         args = [
             str(paths.llama_server),
             "--host",
@@ -278,9 +274,7 @@ def _wait_http(
     last_error = "尚未回應"
     while time.monotonic() < deadline:
         if process.poll() is not None:
-            raise TranslationEngineError(
-                f"翻譯引擎在啟動期間結束（exit {process.returncode}）。"
-            )
+            raise TranslationEngineError(f"翻譯引擎在啟動期間結束（exit {process.returncode}）。")
         try:
             response = httpx.get(url, timeout=2.0)
             if response.status_code == 200:

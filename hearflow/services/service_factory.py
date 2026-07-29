@@ -32,9 +32,8 @@ def build_transcription_client(
         return RemoteTranscriptionClient(settings.remote_transcription, secret_store)
     if settings.engine.mode == "managed":
         return engine_manager.client
-    gateway_key = (
-        secret_store.load_provider_key(settings.engine.credential_id)
-        or os.environ.get("HEARFLOW_GATEWAY_API_KEY")
+    gateway_key = secret_store.load_provider_key(settings.engine.credential_id) or os.environ.get(
+        "HEARFLOW_GATEWAY_API_KEY"
     )
     return QwenGatewayClient(
         settings.engine.gateway_url,

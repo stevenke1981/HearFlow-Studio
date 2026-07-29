@@ -210,11 +210,7 @@ def test_gemini_stt_uses_native_inline_audio(tmp_path: Path) -> None:
         captured["body"] = json.loads(request.content)
         return httpx.Response(
             200,
-            json={
-                "candidates": [
-                    {"content": {"parts": [{"text": json.dumps(inner)}]}}
-                ]
-            },
+            json={"candidates": [{"content": {"parts": [{"text": json.dumps(inner)}]}}]},
         )
 
     settings = RemoteTranscriptionSettings(

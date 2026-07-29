@@ -161,7 +161,7 @@ class Qwen3TtsCliSynthesizer:
                 return resolved
         raise LocalSpeechError(
             "找不到 qwen3tts-rs 執行檔。請執行 scripts/install-tts.ps1；"
-            "該安裝器會以 --features \"candle-llm cuda\" 建置 NVIDIA CUDA 版本。"
+            '該安裝器會以 --features "candle-llm cuda" 建置 NVIDIA CUDA 版本。'
         )
 
     def resolve_model_dir(self, *, required: bool) -> Path | None:

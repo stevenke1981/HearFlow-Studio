@@ -139,9 +139,7 @@ class EngineManager:
         ffprobe = _tool_path(runtime, "ffprobe")
         asr_model_dir = runtime / "models" / "asr"
         models = sorted(
-            item
-            for item in asr_model_dir.glob("*.gguf")
-            if "mmproj" not in item.name.casefold()
+            item for item in asr_model_dir.glob("*.gguf") if "mmproj" not in item.name.casefold()
         )
         mmprojs = sorted(asr_model_dir.glob("*mmproj*.gguf"))
         # Backward-compatible legacy lookup.  It is deliberately restricted to

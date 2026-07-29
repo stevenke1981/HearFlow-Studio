@@ -191,30 +191,69 @@ class StudioWorkflow:
             attempt_id, generation_id = repository.database.begin_attempt(job_id)
 
             result = self._run_asr(
-                repository, job, job_id, attempt_id, generation_id, token,
-                language=language, prompt=prompt, notify=notify,
+                repository,
+                job,
+                job_id,
+                attempt_id,
+                generation_id,
+                token,
+                language=language,
+                prompt=prompt,
+                notify=notify,
             )
             cleaned = self._run_clean(
-                repository, job_id, attempt_id, generation_id, token, result, notify,
+                repository,
+                job_id,
+                attempt_id,
+                generation_id,
+                token,
+                result,
+                notify,
             )
             translated_segments, translation_status = self._run_translation(
-                repository, job_id, attempt_id, generation_id, token,
-                cleaned, translate=translate, notify=notify,
+                repository,
+                job_id,
+                attempt_id,
+                generation_id,
+                token,
+                cleaned,
+                translate=translate,
+                notify=notify,
             )
             issues = self._run_qa(
-                repository, job_id, attempt_id, generation_id,
-                translated_segments, translation_status,
-                require_translation=translate, notify=notify,
+                repository,
+                job_id,
+                attempt_id,
+                generation_id,
+                translated_segments,
+                translation_status,
+                require_translation=translate,
+                notify=notify,
             )
             output_paths = self._run_export(
-                repository, job, job_id, attempt_id, generation_id, token,
-                translated_segments, result, requested_formats,
+                repository,
+                job,
+                job_id,
+                attempt_id,
+                generation_id,
+                token,
+                translated_segments,
+                result,
+                requested_formats,
                 prefer_translation=translation_status is TranslationStatus.COMPLETED,
-                require_translation=translate, notify=notify,
+                require_translation=translate,
+                notify=notify,
             )
             report_paths = self._run_report(
-                repository, job_id, attempt_id, generation_id,
-                translated_segments, issues, result, translation_status, notify,
+                repository,
+                job_id,
+                attempt_id,
+                generation_id,
+                translated_segments,
+                issues,
+                result,
+                translation_status,
+                notify,
             )
             return {
                 "job": repository.get_job(job_id),
@@ -291,12 +330,13 @@ class StudioWorkflow:
         job = repository.get_job(job_id)
         manifest = repository.manifest()
         use_translation = prefer_translation and any(
-            item.translated_text is not None and item.translated_text.strip()
-            for item in segments
+            item.translated_text is not None and item.translated_text.strip() for item in segments
         )
-        selected_language = language or (
-            manifest.target_language if use_translation else manifest.source_language
-        ) or "auto"
+        selected_language = (
+            language
+            or (manifest.target_language if use_translation else manifest.source_language)
+            or "auto"
+        )
         extension = self.speech.synthesizer.output_extension.lstrip(".") or "wav"
         destination = _versioned_path(
             repository.root
@@ -383,7 +423,10 @@ class StudioWorkflow:
             token,
         )
         if not repository.save_transcription(
-            job_id, result, attempt_id=attempt_id, generation_id=generation_id,
+            job_id,
+            result,
+            attempt_id=attempt_id,
+            generation_id=generation_id,
         ):
             if token.cancelled:
                 raise RequestCancelled()
@@ -431,7 +474,10 @@ class StudioWorkflow:
         notify("clean", 52, "正在清理字幕文字")
         cleaned = self.subtitles.clean(result.segments, CleanRules())
         if not repository.replace_segments_if_current(
-            job_id, cleaned, attempt_id=attempt_id, generation_id=generation_id,
+            job_id,
+            cleaned,
+            attempt_id=attempt_id,
+            generation_id=generation_id,
         ):
             _raise_rejected_commit(token, "較舊的清理結果已忽略。")
         return cleaned
@@ -497,7 +543,10 @@ class StudioWorkflow:
                 )
             )
         if not repository.replace_segments_if_current(
-            job_id, translated_segments, attempt_id=attempt_id, generation_id=generation_id,
+            job_id,
+            translated_segments,
+            attempt_id=attempt_id,
+            generation_id=generation_id,
         ):
             _raise_rejected_commit(token, "較舊的翻譯結果已忽略。")
         translation_status = (
@@ -546,7 +595,8 @@ class StudioWorkflow:
             translation_status=translation_status,
         ):
             _raise_rejected_commit(
-                CancellationToken(), "較舊的 QA 狀態已忽略。",
+                CancellationToken(),
+                "較舊的 QA 狀態已忽略。",
             )
         issues = self.qa.inspect(
             translated_segments,
@@ -644,7 +694,8 @@ class StudioWorkflow:
             translation_status=translation_status,
         ):
             _raise_rejected_commit(
-                CancellationToken(), "較舊工作的完成狀態已忽略。",
+                CancellationToken(),
+                "較舊工作的完成狀態已忽略。",
             )
         finished_job = repository.get_job(job_id)
         report_paths = self.reports.generate_job_report(
@@ -652,7 +703,9 @@ class StudioWorkflow:
             job=finished_job,
             segments=translated_segments,
             issues=issues,
-            output_dir=(repository.root / "reports" / f"{finished_job.id[:8]}.attempt-{attempt_id}"),
+            output_dir=(
+                repository.root / "reports" / f"{finished_job.id[:8]}.attempt-{attempt_id}"
+            ),
             engine={
                 "model": result.model,
                 "chunks": result.chunk_count,
@@ -670,7 +723,8 @@ class StudioWorkflow:
             ):
                 report.unlink(missing_ok=True)
                 _raise_rejected_commit(
-                    CancellationToken(), "較舊的報告產物已忽略。",
+                    CancellationToken(),
+                    "較舊的報告產物已忽略。",
                 )
         repository.log_event(
             "info",

@@ -248,9 +248,7 @@ class AppSettings:
         default_factory=RemoteTranscriptionSettings
     )
     translation: TranslationSettings = field(default_factory=TranslationSettings)
-    translation_engine: TranslationEngineSettings = field(
-        default_factory=TranslationEngineSettings
-    )
+    translation_engine: TranslationEngineSettings = field(default_factory=TranslationEngineSettings)
     speech: SpeechSettings = field(default_factory=SpeechSettings)
     recent_projects: tuple[str, ...] = ()
     last_project_dir: str = ""

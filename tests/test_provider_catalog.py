@@ -24,12 +24,12 @@ def test_required_provider_families_are_available() -> None:
 
 def test_gemini_uses_different_text_and_native_audio_bases() -> None:
     gemini = get_provider_profile("gemini")
-    assert normalized_base_url(
-        gemini, capability=ProviderCapability.TRANSLATION
-    ).endswith("/v1beta/openai")
-    assert normalized_base_url(
-        gemini, capability=ProviderCapability.TRANSCRIPTION
-    ).endswith("/v1beta")
+    assert normalized_base_url(gemini, capability=ProviderCapability.TRANSLATION).endswith(
+        "/v1beta/openai"
+    )
+    assert normalized_base_url(gemini, capability=ProviderCapability.TRANSCRIPTION).endswith(
+        "/v1beta"
+    )
 
 
 def test_sakana_requires_customer_endpoint() -> None:
