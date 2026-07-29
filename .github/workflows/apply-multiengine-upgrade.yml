@@ -41,11 +41,43 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $parts = Get-ChildItem ".hearflow-upgrade-bundle/part-*.b64" | Sort-Object Name
-          if ($parts.Count -ne 15) {
-            throw "Expected 15 upgrade bundle parts, found $($parts.Count)."
+          $partNames = @(
+            "part-000.b64",
+            "part-001.b64",
+            "part-002.b64",
+            "part-003.b64",
+            "part-004-0.b64",
+            "part-004-1.b64",
+            "part-004-2-0.b64",
+            "part-004-2-1.b64",
+            "part-004-2-2.b64",
+            "part-004-2-3.b64",
+            "part-004-2-4.b64",
+            "part-004-2-5.b64",
+            "part-004-2-6.b64",
+            "part-004-3.b64",
+            "part-005.b64",
+            "part-006.b64",
+            "part-007.b64",
+            "part-008.b64",
+            "part-009.b64",
+            "part-010.b64",
+            "part-011.b64",
+            "part-012.b64",
+            "part-013.b64",
+            "part-014.b64"
+          )
+          $parts = $partNames | ForEach-Object {
+            $path = Join-Path ".hearflow-upgrade-bundle" $_
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Missing upgrade bundle part: $path"
+            }
+            $path
           }
-          $encoded = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ""
+          if ($parts.Count -ne 24) {
+            throw "Expected 24 verified upgrade bundle fragments, found $($parts.Count)."
+          }
+          $encoded = ($parts | ForEach-Object { Get-Content -LiteralPath $_ -Raw }) -join ""
           $encoded = $encoded -replace "\s", ""
           $bytes = [Convert]::FromBase64String($encoded)
           $zipPath = Join-Path $env:RUNNER_TEMP "HearFlow-Studio-multiengine-v0.2.0.zip"
