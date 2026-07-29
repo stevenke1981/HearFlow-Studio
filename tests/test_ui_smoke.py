@@ -46,7 +46,7 @@ def test_main_window_can_construct_offscreen(qtbot: _QtBot) -> None:
     )
     window = MainWindow(workflow, secret_store=Secrets())  # type: ignore[arg-type]
     qtbot.addWidget(window)
-    assert window.windowTitle() == "聽序 HearFlow Studio v0.1.0"
+    assert window.windowTitle() == "聽序 HearFlow Studio v0.2.0"
     assert window.tabs.count() == 7
     qtbot.wait(400)
     qtbot.waitUntil(lambda: not window._active_tasks)
