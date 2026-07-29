@@ -1,0 +1,97 @@
+name: Apply HearFlow multi-engine upgrade
+
+on:
+  push:
+    branches:
+      - agent/multiengine-local-cuda-remote-providers
+    paths:
+      - .hearflow-upgrade-bundle/TRIGGER
+
+permissions:
+  contents: write
+
+jobs:
+  apply-upgrade:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      PYTHONUTF8: "1"
+      QT_QPA_PLATFORM: offscreen
+
+    steps:
+      - name: Check out upgrade branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Reassemble verified upgrade kit
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $parts = Get-ChildItem ".hearflow-upgrade-bundle/part-*.b64" | Sort-Object Name
+          if ($parts.Count -ne 5) {
+            throw "Expected 5 upgrade bundle parts, found $($parts.Count)."
+          }
+          $encoded = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ""
+          $encoded = $encoded -replace "\s", ""
+          $bytes = [Convert]::FromBase64String($encoded)
+          $zipPath = Join-Path $env:RUNNER_TEMP "HearFlow-Studio-multiengine-v0.2.0.zip"
+          [IO.File]::WriteAllBytes($zipPath, $bytes)
+          $actual = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = "b3c00a0d39a8df7578137a9b3237327a78678e211cd345c3c0fb530403a31bf9"
+          if ($actual -ne $expected) {
+            throw "Upgrade kit SHA-256 mismatch. Expected $expected, got $actual."
+          }
+          $extractRoot = Join-Path $env:RUNNER_TEMP "hearflow-multiengine-upgrade"
+          if (Test-Path $extractRoot) { Remove-Item $extractRoot -Recurse -Force }
+          Expand-Archive -LiteralPath $zipPath -DestinationPath $extractRoot -Force
+
+      - name: Validate and apply upgrade
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $kit = Join-Path $env:RUNNER_TEMP "hearflow-multiengine-upgrade/HearFlow-Studio-upgrade-kit"
+          python (Join-Path $kit "apply_upgrade.py") $env:GITHUB_WORKSPACE --check
+          python (Join-Path $kit "apply_upgrade.py") $env:GITHUB_WORKSPACE
+          New-Item -ItemType Directory -Path "docs/multiengine" -Force | Out-Null
+          Copy-Item (Join-Path $kit "docs/PROVIDER-MATRIX.md") "docs/multiengine/PROVIDER-MATRIX.md" -Force
+          Copy-Item (Join-Path $kit "docs/AUDIT.md") "docs/multiengine/AUDIT.md" -Force
+          Copy-Item (Join-Path $kit "docs/SECURITY.md") "docs/multiengine/SECURITY.md" -Force
+          Copy-Item (Join-Path $kit "docs/TROUBLESHOOTING.md") "docs/multiengine/TROUBLESHOOTING.md" -Force
+
+      - name: Install test dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "PySide6>=6.8,<7" "httpx>=0.28,<1" "keyring>=25,<26" "pytest>=8,<10" "pytest-qt>=4.4,<5"
+
+      - name: Validate generated sources and tests
+        shell: pwsh
+        run: |
+          python -m compileall -q hearflow
+          python -m pytest -q
+
+      - name: Commit integrated source changes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          if (Test-Path ".hearflow-upgrade") {
+            Remove-Item ".hearflow-upgrade" -Recurse -Force
+          }
+          Remove-Item ".hearflow-upgrade-bundle" -Recurse -Force
+          Remove-Item ".github/workflows/apply-multiengine-upgrade.yml" -Force
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --stat
+          if ((git diff --cached --quiet); $LASTEXITCODE -eq 0) {
+            throw "Upgrade produced no source changes."
+          }
+          git commit -m "feat: add local CUDA and remote multi-provider audio engines"
+          git push origin HEAD:agent/multiengine-local-cuda-remote-providers
