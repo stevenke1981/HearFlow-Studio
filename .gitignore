@@ -4,6 +4,7 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .venv/
+*.egg-info/
 # Build and release outputs
 build/
 dist/
@@ -25,4 +26,3 @@ projects/
 
 # Third-party build outputs
 third_party/qwen3-asr-llama-cpp/
-
