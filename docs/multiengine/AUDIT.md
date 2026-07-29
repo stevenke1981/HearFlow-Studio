@@ -102,10 +102,11 @@ flowchart LR
 
 ## PR 整合驗證
 
-在 GitHub Actions 的 Windows Server 2025、Python 3.12 環境完成：
+在 GitHub Actions 的 Windows Server 2025 環境完成：
 
 - 升級套件 SHA-256 驗證。
 - `python -m compileall -q hearflow`。
+- Python 3.12 與 3.13 的 `ruff check`、`ruff format --check`、`mypy` 與 `pytest` 品質門檻。
 - `python -m pytest -q`，包含原有測試與新增的多引擎、遠端音訊、TTS、翻譯 factory 測試。
 - 舊設定、舊 Credential ID 與測試媒體 mock 的向後相容驗證。
 
