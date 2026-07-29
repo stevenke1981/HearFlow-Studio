@@ -53,7 +53,6 @@ from hearflow.services.settings import AppSettings, SecretStore, SettingsReposit
 from hearflow.services.speech import SpeechRenderService
 from hearflow.services.translation_engine import TranslationEngineManager
 from hearflow.ui.dialogs import EnvironmentReportDialog, NewProjectDialog
-from hearflow.ui.settings_v2 import SettingsDialog
 from hearflow.ui.pages import (
     EditorPage,
     FilesPage,
@@ -63,6 +62,7 @@ from hearflow.ui.pages import (
     TranslationPage,
     WorkflowPage,
 )
+from hearflow.ui.settings_v2 import SettingsDialog
 from hearflow.ui.table_models import JobTableModel, SegmentTableModel
 
 _T = TypeVar("_T")
