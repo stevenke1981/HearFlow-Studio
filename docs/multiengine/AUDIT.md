@@ -100,6 +100,17 @@ flowchart LR
     TTSRemote --> Artifacts
 ```
 
+## PR 整合驗證
+
+在 GitHub Actions 的 Windows Server 2025、Python 3.12 環境完成：
+
+- 升級套件 SHA-256 驗證。
+- `python -m compileall -q hearflow`。
+- `python -m pytest -q`，包含原有測試與新增的多引擎、遠端音訊、TTS、翻譯 factory 測試。
+- 舊設定、舊 Credential ID 與測試媒體 mock 的向後相容驗證。
+
+本項驗證不等同於 NVIDIA CUDA 實機推論或付費供應商帳號的線上計費 API 測試；這兩類測試仍須在具備相應硬體與憑證的環境執行。
+
 ## 仍應列入後續版本的項目
 
 1. 遠端大檔自動切段、平行上傳與 retry/resume。
