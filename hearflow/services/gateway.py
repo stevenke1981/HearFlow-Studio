@@ -431,17 +431,20 @@ async def request_with_cancellation(
 def run_async[T](awaitable: Awaitable[T]) -> T:
     """Run an async service method from a Qt worker, even near an active loop."""
 
+    async def consume() -> T:
+        return await awaitable
+
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        return asyncio.run(awaitable)
+        return asyncio.run(consume())
 
     result: list[T] = []
     error: list[BaseException] = []
 
     def runner() -> None:
         try:
-            result.append(asyncio.run(awaitable))
+            result.append(asyncio.run(consume()))
         except BaseException as exc:  # propagate the original service exception
             error.append(exc)
 

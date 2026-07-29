@@ -156,9 +156,9 @@ class Qwen3TtsCliSynthesizer:
             if resolved:
                 candidates.append(Path(resolved))
         for candidate in candidates:
-            resolved = candidate.resolve(strict=False)
-            if resolved.is_file():
-                return resolved
+            resolved_path = candidate.resolve(strict=False)
+            if resolved_path.is_file():
+                return resolved_path
         raise LocalSpeechError(
             "找不到 qwen3tts-rs 執行檔。請執行 scripts/install-tts.ps1；"
             '該安裝器會以 --features "candle-llm cuda" 建置 NVIDIA CUDA 版本。'

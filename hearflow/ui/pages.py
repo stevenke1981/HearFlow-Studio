@@ -308,6 +308,9 @@ class EditorPage(QWidget):
         needle = text.casefold()
         for row in range(self.model.rowCount()):
             item = self.model.segment_at(row)
+            if item is None:
+                self.table.setRowHidden(row, True)
+                continue
             visible = (
                 not needle
                 or needle in (item.source_text + " " + (item.translated_text or "")).casefold()
@@ -365,14 +368,14 @@ class TranslationPage(QWidget):
         self.model = QLineEdit()
         self.model.setPlaceholderText("例如 qwen3:8b")
         self.target = QLineEdit("繁體中文（台灣）")
-        self.style = QComboBox()
-        self.style.addItems(["自然口語", "精簡字幕", "正式書面", "保留角色語氣"])
+        self.style_combo = QComboBox()
+        self.style_combo.addItems(["自然口語", "精簡字幕", "正式書面", "保留角色語氣"])
         form = QFormLayout()
         form.addRow("", self.enabled)
         form.addRow("翻譯來源", self.provider)
         form.addRow("模型", self.model)
         form.addRow("目標語言", self.target)
-        form.addRow("翻譯風格", self.style)
+        form.addRow("翻譯風格", self.style_combo)
         provider_group = QGroupBox("翻譯設定")
         provider_group.setProperty("zone", "translation")
         provider_group.setLayout(form)

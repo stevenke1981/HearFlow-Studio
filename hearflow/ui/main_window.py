@@ -127,8 +127,8 @@ class ProjectSettingsPanel(QGroupBox):
             ("不翻譯", ""),
         ):
             self.target_language.addItem(label, value)
-        self.style = QComboBox()
-        self.style.addItems(["自然口語", "精簡字幕", "正式書面", "保留角色語氣"])
+        self.style_combo = QComboBox()
+        self.style_combo.addItems(["自然口語", "精簡字幕", "正式書面", "保留角色語氣"])
         save = QPushButton("儲存專案設定")
         save.clicked.connect(self.save_requested)
         layout = QGridLayout(self)
@@ -139,7 +139,7 @@ class ProjectSettingsPanel(QGroupBox):
         layout.addWidget(QLabel("目標語言"), 1, 2)
         layout.addWidget(self.target_language, 1, 3)
         layout.addWidget(QLabel("翻譯風格"), 2, 0)
-        layout.addWidget(self.style, 2, 1, 1, 2)
+        layout.addWidget(self.style_combo, 2, 1, 1, 2)
         layout.addWidget(save, 2, 3)
         layout.setColumnStretch(1, 1)
         layout.setColumnStretch(3, 1)
@@ -1263,7 +1263,7 @@ class MainWindow(QMainWindow):
             name=self.project_settings.name.text(),
             source_language=str(self.project_settings.source_language.currentData()),
             target_language=(str(self.project_settings.target_language.currentData()) or None),
-            translation_style=self.project_settings.style.currentText(),
+            translation_style=self.project_settings.style_combo.currentText(),
         )
         self.statusBar().showMessage("專案設定已儲存", 4_000)
 

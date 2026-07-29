@@ -1,0 +1,11 @@
+PySide6<7,>=6.8
+httpx<1,>=0.28
+keyring<26,>=25
+
+[dev]
+pytest<10,>=8
+pytest-cov<7,>=6
+pytest-qt<5,>=4.4
+ruff<1,>=0.11
+mypy<2,>=1.15
+pyinstaller<7,>=6.12

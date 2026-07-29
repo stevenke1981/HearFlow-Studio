@@ -290,7 +290,7 @@ def _first_duration(
 
 def _optional_positive_int(value: object) -> int | None:
     try:
-        parsed = int(value)  # type: ignore[arg-type]
+        parsed = int(value)  # type: ignore[call-overload]
     except (TypeError, ValueError):
         return None
     return parsed if parsed > 0 else None

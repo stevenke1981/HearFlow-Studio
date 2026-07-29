@@ -6,12 +6,13 @@ import json
 import logging
 from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from hearflow.domain.models import (
     ArtifactKind,
     AsrResult,
     CleanRules,
+    EngineStatus,
     ExportOptions,
     JobStatus,
     MediaJob,
@@ -23,7 +24,6 @@ from hearflow.domain.models import (
 from hearflow.services.fsutil import atomic_write_text, safe_filename, sha256_file
 from hearflow.services.gateway import (
     CancellationToken,
-    QwenGatewayClient,
     RequestCancelled,
     TranscriptionOptions,
 )
@@ -44,6 +44,19 @@ ProgressCallback = Callable[[str, int, str], None]
 ALLOWED_EXPORT_FORMATS = frozenset({"srt", "vtt", "ass", "txt", "json"})
 
 
+class TranscriptionClient(Protocol):
+    """Common local or remote transcription service boundary."""
+
+    def health(self) -> EngineStatus: ...
+
+    def transcribe(
+        self,
+        media_path: str | Path,
+        options: TranscriptionOptions | None = None,
+        cancellation: CancellationToken | None = None,
+    ) -> AsrResult: ...
+
+
 class WorkflowError(RuntimeError):
     """A user-actionable end-to-end workflow failure."""
 
@@ -58,7 +71,7 @@ class StudioWorkflow:
     def __init__(
         self,
         *,
-        gateway: QwenGatewayClient,
+        gateway: TranscriptionClient,
         media: MediaInspector,
         translator: Translator | None = None,
         speech: SpeechSynthesizer | None = None,
@@ -67,7 +80,7 @@ class StudioWorkflow:
         reports: ReportService | None = None,
         cancel_backend: Callable[[], None] | None = None,
     ) -> None:
-        self.gateway = gateway
+        self.gateway: TranscriptionClient = gateway
         self.media = media
         self.translator: Translator = translator or DisabledTranslator()
         self.speech = SpeechRenderService(

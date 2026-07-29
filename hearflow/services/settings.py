@@ -7,7 +7,7 @@ import math
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from urllib.parse import urlsplit
 
 SETTINGS_KEY = "settings/app"
@@ -467,7 +467,7 @@ def _migrate_settings(payload: Mapping[str, Any]) -> dict[str, Any]:
 def _dataclass_from_mapping[T](cls: type[T], raw: Any) -> T:
     if not isinstance(raw, Mapping):
         raise TypeError(f"{cls.__name__} settings must be an object")
-    allowed = {item.name for item in fields(cls)}
+    allowed = {item.name for item in fields(cast(Any, cls))}
     unknown = set(raw) - allowed
     if unknown:
         raise ValueError(f"unknown {cls.__name__} fields: {', '.join(sorted(unknown))}")

@@ -5,7 +5,13 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, Signal
+from PySide6.QtCore import (
+    QAbstractTableModel,
+    QModelIndex,
+    QPersistentModelIndex,
+    Qt,
+    Signal,
+)
 from PySide6.QtGui import QColor
 
 from hearflow.domain.models import JobStatus, MediaJob, SubtitleSegment
@@ -25,6 +31,7 @@ _STATUS_LABELS = {
     JobStatus.FAILED: "失敗",
 }
 _INVALID_INDEX = QModelIndex()
+_ModelIndex = QModelIndex | QPersistentModelIndex
 
 
 def format_time(milliseconds: int) -> str:
@@ -75,10 +82,10 @@ class JobTableModel(QAbstractTableModel):
     def job_at(self, row: int) -> MediaJob | None:
         return self._jobs[row] if 0 <= row < len(self._jobs) else None
 
-    def rowCount(self, parent: QModelIndex = _INVALID_INDEX) -> int:  # noqa: N802
+    def rowCount(self, parent: _ModelIndex = _INVALID_INDEX) -> int:  # noqa: N802
         return 0 if parent.isValid() else len(self._jobs)
 
-    def columnCount(self, parent: QModelIndex = _INVALID_INDEX) -> int:  # noqa: N802
+    def columnCount(self, parent: _ModelIndex = _INVALID_INDEX) -> int:  # noqa: N802
         return 0 if parent.isValid() else len(self.headers)
 
     def headerData(  # noqa: N802
@@ -95,7 +102,7 @@ class JobTableModel(QAbstractTableModel):
             return self.headers[section]
         return super().headerData(section, orientation, role)
 
-    def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
+    def data(self, index: _ModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
         if not index.isValid() or not 0 <= index.row() < len(self._jobs):
             return None
         job = self._jobs[index.row()]
@@ -150,10 +157,10 @@ class SegmentTableModel(QAbstractTableModel):
     def segment_at(self, row: int) -> SubtitleSegment | None:
         return self._segments[row] if 0 <= row < len(self._segments) else None
 
-    def rowCount(self, parent: QModelIndex = _INVALID_INDEX) -> int:  # noqa: N802
+    def rowCount(self, parent: _ModelIndex = _INVALID_INDEX) -> int:  # noqa: N802
         return 0 if parent.isValid() else len(self._segments)
 
-    def columnCount(self, parent: QModelIndex = _INVALID_INDEX) -> int:  # noqa: N802
+    def columnCount(self, parent: _ModelIndex = _INVALID_INDEX) -> int:  # noqa: N802
         return 0 if parent.isValid() else len(self.headers)
 
     def headerData(  # noqa: N802
@@ -170,13 +177,13 @@ class SegmentTableModel(QAbstractTableModel):
             return self.headers[section]
         return super().headerData(section, orientation, role)
 
-    def flags(self, index: QModelIndex) -> Qt.ItemFlag:
+    def flags(self, index: _ModelIndex) -> Qt.ItemFlag:
         flags = super().flags(index)
         if index.isValid() and index.column() in {1, 2, 3, 4}:
             flags |= Qt.ItemFlag.ItemIsEditable
         return flags
 
-    def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
+    def data(self, index: _ModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
         if not index.isValid() or not 0 <= index.row() < len(self._segments):
             return None
         item = self._segments[index.row()]
@@ -198,7 +205,7 @@ class SegmentTableModel(QAbstractTableModel):
 
     def setData(  # noqa: N802
         self,
-        index: QModelIndex,
+        index: _ModelIndex,
         value: Any,
         role: int = Qt.ItemDataRole.EditRole,
     ) -> bool:
