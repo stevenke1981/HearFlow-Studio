@@ -108,6 +108,7 @@ flowchart LR
 - `python -m compileall -q hearflow`。
 - 先以 Ruff formatter 統一 `hearflow` 與 `tests` 的原始碼格式。
 - Python 3.12 與 3.13 的 `ruff check`、`ruff format --check`、`mypy` 與 `pytest` 品質門檻。
+- 同步支援新版 PySide6 Qt index 型別、通用本機／遠端轉錄 Protocol 與 asyncio Awaitable 型別檢查。
 - `python -m pytest -q`，包含原有測試與新增的多引擎、遠端音訊、TTS、翻譯 factory 測試。
 - 舊設定、舊 Credential ID 與測試媒體 mock 的向後相容驗證。
 
