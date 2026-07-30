@@ -289,7 +289,9 @@ if (-not $DryRun) {
 $Downloads = Join-Path $RuntimeRoot "downloads"
 $EngineDir = Join-Path $RuntimeRoot "engine\$Backend"
 $GatewayDir = Join-Path $RuntimeRoot "gateway"
-$ModelsDir = Join-Path $RuntimeRoot "models"
+$ModelsRoot = Join-Path $RuntimeRoot "models"
+$AsrModelsDir = Join-Path $ModelsRoot "asr"
+$TranslationModelsDir = Join-Path $ModelsRoot "translation"
 $FFmpegDir = Join-Path $RuntimeRoot "ffmpeg"
 $StagingRoot = Join-Path $RuntimeRoot ("install-staging\" + [guid]::NewGuid().ToString("N"))
 
@@ -298,7 +300,9 @@ foreach ($installerPath in @(
         $Downloads,
         $EngineDir,
         $GatewayDir,
-        $ModelsDir,
+        $ModelsRoot,
+        $AsrModelsDir,
+        $TranslationModelsDir,
         $FFmpegDir,
         $StagingRoot
     )) {
@@ -308,7 +312,8 @@ foreach ($installerPath in @(
 try {
     Write-Step "Installing llama.cpp $LlamaRevision"
     if (-not $DryRun) {
-        New-Item -ItemType Directory -Force -Path $Downloads, $EngineDir, $StagingRoot | Out-Null
+        New-Item -ItemType Directory -Force -Path `
+            $Downloads, $EngineDir, $StagingRoot, $AsrModelsDir, $TranslationModelsDir | Out-Null
     }
 
     foreach ($asset in $AssetByBackend[$Backend]) {
@@ -409,8 +414,16 @@ try {
     }
 
     Write-Step "Installing Qwen3-ASR 0.6B Q8_0 model files"
-    $modelPath = Join-Path $ModelsDir $ModelFileName
-    $mmprojPath = Join-Path $ModelsDir $MmprojFileName
+    $modelPath = Join-Path $AsrModelsDir $ModelFileName
+    $mmprojPath = Join-Path $AsrModelsDir $MmprojFileName
+    $legacyModelPath = Join-Path $ModelsRoot $ModelFileName
+    $legacyMmprojPath = Join-Path $ModelsRoot $MmprojFileName
+    if (-not (Test-Path -LiteralPath $modelPath) -and (Test-Path -LiteralPath $legacyModelPath)) {
+        $modelPath = $legacyModelPath
+    }
+    if (-not (Test-Path -LiteralPath $mmprojPath) -and (Test-Path -LiteralPath $legacyMmprojPath)) {
+        $mmprojPath = $legacyMmprojPath
+    }
     if (-not $SkipModelDownload) {
         $modelBase = "https://huggingface.co/$ModelRepository/resolve/main"
         Invoke-Download `
@@ -424,7 +437,7 @@ try {
     }
     else {
         if (-not (Test-Path -LiteralPath $modelPath) -or -not (Test-Path -LiteralPath $mmprojPath)) {
-            throw "-SkipModelDownload requires both model files to already exist in $ModelsDir."
+            throw "-SkipModelDownload requires both model files to already exist in $AsrModelsDir or the legacy $ModelsRoot."
         }
         $modelHash = Get-Sha256 -LiteralPath $modelPath
         if ($modelHash -ne $ExpectedSha256[$ModelFileName]) {
@@ -446,21 +459,28 @@ Actual:   $mmprojHash
     }
     Invoke-Download `
         -Uri "https://huggingface.co/$ModelRepository/resolve/main/README.md" `
-        -Destination (Join-Path $ModelsDir "README.Qwen3-ASR-GGUF.md")
+        -Destination (Join-Path $AsrModelsDir "README.Qwen3-ASR-GGUF.md")
     Invoke-Download `
         -Uri "https://huggingface.co/Qwen/Qwen3-ASR-0.6B/resolve/main/README.md" `
-        -Destination (Join-Path $ModelsDir "README.Qwen3-ASR-base-model.md")
+        -Destination (Join-Path $AsrModelsDir "README.Qwen3-ASR-base-model.md")
 
     if ($InstallTranslationModel) {
         Write-Step "Installing TranslateGemma (Gemma-3-4B-IT Q4_K_M) translation model"
-        $translationModelPath = Join-Path $ModelsDir $TranslationModelFileName
+        $translationModelPath = Join-Path $TranslationModelsDir $TranslationModelFileName
+        $legacyTranslationModelPath = Join-Path $ModelsRoot $TranslationModelFileName
+        if (
+            -not (Test-Path -LiteralPath $translationModelPath) -and
+            (Test-Path -LiteralPath $legacyTranslationModelPath)
+        ) {
+            $translationModelPath = $legacyTranslationModelPath
+        }
         $translationModelBase = "https://huggingface.co/$TranslationModelRepository/resolve/main"
         Invoke-Download `
             -Uri "$translationModelBase/${TranslationModelFileName}?download=true" `
             -Destination $translationModelPath
         Invoke-Download `
             -Uri "https://huggingface.co/$TranslationModelRepository/resolve/main/README.md" `
-            -Destination (Join-Path $ModelsDir "README.gemma-3-4b-it-GGUF.md")
+            -Destination (Join-Path $TranslationModelsDir "README.gemma-3-4b-it-GGUF.md")
     }
 
     Write-Step "Writing runtime manifest"

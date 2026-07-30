@@ -6,12 +6,13 @@ import json
 import logging
 from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from hearflow.domain.models import (
     ArtifactKind,
     AsrResult,
     CleanRules,
+    EngineStatus,
     ExportOptions,
     JobStatus,
     MediaJob,
@@ -23,13 +24,17 @@ from hearflow.domain.models import (
 from hearflow.services.fsutil import atomic_write_text, safe_filename, sha256_file
 from hearflow.services.gateway import (
     CancellationToken,
-    QwenGatewayClient,
     RequestCancelled,
     TranscriptionOptions,
 )
 from hearflow.services.media import MediaInspector, discover_media
 from hearflow.services.project_store import ProjectRepository
 from hearflow.services.reporting import ReportService
+from hearflow.services.speech import (
+    DisabledSpeechSynthesizer,
+    SpeechRenderService,
+    SpeechSynthesizer,
+)
 from hearflow.services.subtitles import SubtitleDocumentService, SubtitleQaService
 from hearflow.services.translation import DisabledTranslator, Translator
 
@@ -37,6 +42,19 @@ logger = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[str, int, str], None]
 ALLOWED_EXPORT_FORMATS = frozenset({"srt", "vtt", "ass", "txt", "json"})
+
+
+class TranscriptionClient(Protocol):
+    """Common local or remote transcription service boundary."""
+
+    def health(self) -> EngineStatus: ...
+
+    def transcribe(
+        self,
+        media_path: str | Path,
+        options: TranscriptionOptions | None = None,
+        cancellation: CancellationToken | None = None,
+    ) -> AsrResult: ...
 
 
 class WorkflowError(RuntimeError):
@@ -53,23 +71,29 @@ class StudioWorkflow:
     def __init__(
         self,
         *,
-        gateway: QwenGatewayClient,
+        gateway: TranscriptionClient,
         media: MediaInspector,
         translator: Translator | None = None,
+        speech: SpeechSynthesizer | None = None,
         subtitles: SubtitleDocumentService | None = None,
         qa: SubtitleQaService | None = None,
         reports: ReportService | None = None,
         cancel_backend: Callable[[], None] | None = None,
     ) -> None:
-        self.gateway = gateway
+        self.gateway: TranscriptionClient = gateway
         self.media = media
         self.translator: Translator = translator or DisabledTranslator()
+        self.speech = SpeechRenderService(
+            speech or DisabledSpeechSynthesizer(),
+            ffmpeg_bin=str(getattr(self.media, "ffmpeg_bin", "ffmpeg")),
+        )
         self.subtitles = subtitles or SubtitleDocumentService()
         self.qa = qa or SubtitleQaService()
         self.reports = reports or ReportService()
         self.cancel_backend = cancel_backend
         self.repository: ProjectRepository | None = None
         self._tokens: dict[str, CancellationToken] = {}
+        self._speech_jobs: set[str] = set()
 
     def create_project(
         self,
@@ -180,30 +204,69 @@ class StudioWorkflow:
             attempt_id, generation_id = repository.database.begin_attempt(job_id)
 
             result = self._run_asr(
-                repository, job, job_id, attempt_id, generation_id, token,
-                language=language, prompt=prompt, notify=notify,
+                repository,
+                job,
+                job_id,
+                attempt_id,
+                generation_id,
+                token,
+                language=language,
+                prompt=prompt,
+                notify=notify,
             )
             cleaned = self._run_clean(
-                repository, job_id, attempt_id, generation_id, token, result, notify,
+                repository,
+                job_id,
+                attempt_id,
+                generation_id,
+                token,
+                result,
+                notify,
             )
             translated_segments, translation_status = self._run_translation(
-                repository, job_id, attempt_id, generation_id, token,
-                cleaned, translate=translate, notify=notify,
+                repository,
+                job_id,
+                attempt_id,
+                generation_id,
+                token,
+                cleaned,
+                translate=translate,
+                notify=notify,
             )
             issues = self._run_qa(
-                repository, job_id, attempt_id, generation_id,
-                translated_segments, translation_status,
-                require_translation=translate, notify=notify,
+                repository,
+                job_id,
+                attempt_id,
+                generation_id,
+                translated_segments,
+                translation_status,
+                require_translation=translate,
+                notify=notify,
             )
             output_paths = self._run_export(
-                repository, job, job_id, attempt_id, generation_id, token,
-                translated_segments, result, requested_formats,
+                repository,
+                job,
+                job_id,
+                attempt_id,
+                generation_id,
+                token,
+                translated_segments,
+                result,
+                requested_formats,
                 prefer_translation=translation_status is TranslationStatus.COMPLETED,
-                require_translation=translate, notify=notify,
+                require_translation=translate,
+                notify=notify,
             )
             report_paths = self._run_report(
-                repository, job_id, attempt_id, generation_id,
-                translated_segments, issues, result, translation_status, notify,
+                repository,
+                job_id,
+                attempt_id,
+                generation_id,
+                translated_segments,
+                issues,
+                result,
+                translation_status,
+                notify,
             )
             return {
                 "job": repository.get_job(job_id),
@@ -260,6 +323,87 @@ class StudioWorkflow:
             if self._tokens.get(job_id) is token:
                 self._tokens.pop(job_id, None)
 
+    def synthesize_job_speech(
+        self,
+        job_id: str,
+        *,
+        prefer_translation: bool = True,
+        language: str | None = None,
+        progress: ProgressCallback | None = None,
+    ) -> Path:
+        """Render the selected job's edited transcript without changing job status."""
+
+        repository = self._require_repository()
+        notify = progress or (lambda _stage, _percent, _message: None)
+        if job_id in self._tokens:
+            raise WorkflowError("此媒體工作已在執行，請等待或先取消。")
+        segments = repository.load_segments(job_id)
+        if not segments:
+            raise WorkflowError("目前項目沒有可供語音合成的字幕文字。")
+        job = repository.get_job(job_id)
+        manifest = repository.manifest()
+        use_translation = prefer_translation and any(
+            item.translated_text is not None and item.translated_text.strip() for item in segments
+        )
+        selected_language = (
+            language
+            or (manifest.target_language if use_translation else manifest.source_language)
+            or "auto"
+        )
+        extension = self.speech.synthesizer.output_extension.lstrip(".") or "wav"
+        destination = _versioned_path(
+            repository.root
+            / "exports"
+            / f"{safe_filename(job.source_path.stem)}.speech.{extension}"
+        )
+        token = CancellationToken()
+        self._tokens[job_id] = token
+        self._speech_jobs.add(job_id)
+        notify("speech", 10, "正在準備語音合成")
+        try:
+            output = self.speech.render_segments(
+                segments,
+                destination,
+                prefer_translation=use_translation,
+                language=selected_language,
+                cancellation=token,
+            )
+            speech_settings = self.speech.synthesizer.settings
+            repository.add_artifact(
+                job_id,
+                ArtifactKind.SPEECH,
+                output,
+                metadata={
+                    "mode": speech_settings.mode,
+                    "provider_id": speech_settings.provider_id,
+                    "model": speech_settings.model,
+                    "voice": speech_settings.voice,
+                    "language": selected_language,
+                    "prefer_translation": use_translation,
+                },
+            )
+            repository.log_event(
+                "info",
+                "speech_generated",
+                f"語音檔已產生：{output.name}",
+                job_id=job_id,
+            )
+            repository.export_summary()
+            notify("complete", 100, "語音合成完成")
+            return output
+        except RequestCancelled:
+            repository.log_event(
+                "info",
+                "speech_cancelled",
+                "語音合成已取消；未修改轉錄工作狀態。",
+                job_id=job_id,
+            )
+            raise
+        finally:
+            if self._tokens.get(job_id) is token:
+                self._tokens.pop(job_id, None)
+            self._speech_jobs.discard(job_id)
+
     # ------------------------------------------------------------------
     # Pipeline stages
     # ------------------------------------------------------------------
@@ -279,14 +423,23 @@ class StudioWorkflow:
     ) -> AsrResult:
         """Transcribe via the ASR gateway and persist the raw response."""
 
-        notify("asr", 15, "正在使用 Qwen3-ASR 轉錄")
+        notify("asr", 15, "正在進行語音轉錄")
         result = self.gateway.transcribe(
             job.source_path,
-            TranscriptionOptions(language=language or "auto", prompt=prompt),
+            TranscriptionOptions(
+                language=language or "auto",
+                prompt=prompt,
+                duration_seconds=(
+                    job.metadata.duration_seconds if job.metadata is not None else 0.0
+                ),
+            ),
             token,
         )
         if not repository.save_transcription(
-            job_id, result, attempt_id=attempt_id, generation_id=generation_id,
+            job_id,
+            result,
+            attempt_id=attempt_id,
+            generation_id=generation_id,
         ):
             if token.cancelled:
                 raise RequestCancelled()
@@ -334,7 +487,10 @@ class StudioWorkflow:
         notify("clean", 52, "正在清理字幕文字")
         cleaned = self.subtitles.clean(result.segments, CleanRules())
         if not repository.replace_segments_if_current(
-            job_id, cleaned, attempt_id=attempt_id, generation_id=generation_id,
+            job_id,
+            cleaned,
+            attempt_id=attempt_id,
+            generation_id=generation_id,
         ):
             _raise_rejected_commit(token, "較舊的清理結果已忽略。")
         return cleaned
@@ -400,7 +556,10 @@ class StudioWorkflow:
                 )
             )
         if not repository.replace_segments_if_current(
-            job_id, translated_segments, attempt_id=attempt_id, generation_id=generation_id,
+            job_id,
+            translated_segments,
+            attempt_id=attempt_id,
+            generation_id=generation_id,
         ):
             _raise_rejected_commit(token, "較舊的翻譯結果已忽略。")
         translation_status = (
@@ -449,7 +608,8 @@ class StudioWorkflow:
             translation_status=translation_status,
         ):
             _raise_rejected_commit(
-                CancellationToken(), "較舊的 QA 狀態已忽略。",
+                CancellationToken(),
+                "較舊的 QA 狀態已忽略。",
             )
         issues = self.qa.inspect(
             translated_segments,
@@ -547,7 +707,8 @@ class StudioWorkflow:
             translation_status=translation_status,
         ):
             _raise_rejected_commit(
-                CancellationToken(), "較舊工作的完成狀態已忽略。",
+                CancellationToken(),
+                "較舊工作的完成狀態已忽略。",
             )
         finished_job = repository.get_job(job_id)
         report_paths = self.reports.generate_job_report(
@@ -555,7 +716,9 @@ class StudioWorkflow:
             job=finished_job,
             segments=translated_segments,
             issues=issues,
-            output_dir=(repository.root / "reports" / f"{finished_job.id[:8]}.attempt-{attempt_id}"),
+            output_dir=(
+                repository.root / "reports" / f"{finished_job.id[:8]}.attempt-{attempt_id}"
+            ),
             engine={
                 "model": result.model,
                 "chunks": result.chunk_count,
@@ -573,7 +736,8 @@ class StudioWorkflow:
             ):
                 report.unlink(missing_ok=True)
                 _raise_rejected_commit(
-                    CancellationToken(), "較舊的報告產物已忽略。",
+                    CancellationToken(),
+                    "較舊的報告產物已忽略。",
                 )
         repository.log_event(
             "info",
@@ -596,6 +760,9 @@ class StudioWorkflow:
         token = self._tokens.get(job_id)
         if token is None:
             return False
+        if job_id in self._speech_jobs:
+            token.cancel()
+            return True
         repository.database.bump_generation(job_id, status=JobStatus.CANCELLING)
         token.cancel()
         return True
@@ -650,6 +817,17 @@ class StudioWorkflow:
         if self.repository is None:
             raise WorkflowError("請先建立或開啟專案。")
         return self.repository
+
+
+def _versioned_path(path: Path) -> Path:
+    if not path.exists():
+        return path
+    version = 2
+    while True:
+        candidate = path.with_name(f"{path.stem}.v{version}{path.suffix}")
+        if not candidate.exists():
+            return candidate
+        version += 1
 
 
 def _utc() -> str:

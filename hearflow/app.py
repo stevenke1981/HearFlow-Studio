@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import sys
 from pathlib import Path
 
@@ -12,15 +11,18 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 from hearflow.application.workflow import StudioWorkflow
 from hearflow.services.engine import EngineManager
-from hearflow.services.gateway import QwenGatewayClient
 from hearflow.services.media import MediaInspector
+from hearflow.services.service_factory import (
+    build_speech_synthesizer,
+    build_transcription_client,
+    build_translator,
+)
 from hearflow.services.settings import (
     AppSettings,
     SecretStore,
     SettingsError,
     SettingsRepository,
 )
-from hearflow.services.translation import DisabledTranslator, OpenAICompatibleTranslator
 from hearflow.services.translation_engine import TranslationEngineManager
 from hearflow.ui.main_window import MainWindow
 
@@ -33,9 +35,14 @@ def build_workflow(
     secret_store: SecretStore | None = None,
     translation_engine_manager: TranslationEngineManager | None = None,
 ) -> StudioWorkflow:
-    """Build production services from persisted, non-secret settings."""
+    """Build local/remote services from persisted non-secret settings."""
 
     manager = engine_manager or EngineManager(settings.engine)
+    secrets = secret_store or SecretStore()
+    translation_manager = translation_engine_manager or TranslationEngineManager(
+        settings.translation_engine,
+        runtime_root=manager.runtime_root,
+    )
     paths = manager.resolve_paths()
     bundled_ffmpeg = manager.runtime_root / "ffmpeg" / "ffmpeg.exe"
     bundled_ffprobe = manager.runtime_root / "ffmpeg" / "ffprobe.exe"
@@ -53,38 +60,19 @@ def build_workflow(
         if bundled_ffprobe.is_file()
         else "ffprobe"
     )
-    if settings.engine.mode == "managed":
-        gateway = manager.client
-    else:
-        gateway_key = os.environ.get("HEARFLOW_GATEWAY_API_KEY")
-        gateway = QwenGatewayClient(
-            settings.engine.gateway_url,
-            api_key=gateway_key,
-            timeout=120.0,
-        )
-    translator = DisabledTranslator()
-    if settings.translation_engine.enabled and translation_engine_manager is not None:
-        from dataclasses import replace
-
-        local_translation_settings = replace(
-            settings.translation,
-            enabled=True,
-            base_url=f"http://127.0.0.1:{settings.translation_engine.port}/v1",
-            model=settings.translation_engine.model_id,
-        )
-        translator = OpenAICompatibleTranslator(
-            local_translation_settings,
-            secret_store or SecretStore(),
-        )
-    elif settings.translation.enabled:
-        translator = OpenAICompatibleTranslator(
-            settings.translation,
-            secret_store or SecretStore(),
-        )
+    media = MediaInspector(ffmpeg_bin=ffmpeg, ffprobe_bin=ffprobe)
+    transcription = build_transcription_client(settings, manager, secrets)
+    translator = build_translator(settings, secrets, translation_manager)
+    speech = build_speech_synthesizer(
+        settings,
+        secrets,
+        runtime_root=manager.runtime_root,
+    )
     return StudioWorkflow(
-        gateway=gateway,
-        media=MediaInspector(ffmpeg_bin=ffmpeg, ffprobe_bin=ffprobe),
+        gateway=transcription,
+        media=media,
         translator=translator,
+        speech=speech,
         cancel_backend=(manager.cancel_and_restart if settings.engine.mode == "managed" else None),
     )
 
@@ -109,7 +97,7 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("聽序 HearFlow Studio")
     app.setOrganizationName("HearFlow")
-    app.setApplicationVersion("0.1.0")
+    app.setApplicationVersion("0.2.0")
     app.setStyle("Fusion")
     app.setFont(QFont("Microsoft JhengHei UI", 10))
     app.setStyleSheet(load_theme())
@@ -129,7 +117,10 @@ def main() -> int:
             runtime_root=engine_manager.runtime_root,
         )
         workflow = build_workflow(
-            settings, engine_manager, secret_store, translation_engine_manager,
+            settings,
+            engine_manager,
+            secret_store,
+            translation_engine_manager,
         )
     except Exception as exc:
         QMessageBox.critical(

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hearflow-studio"
-version = "0.1.0"
+version = "0.2.0"
 description = "Windows-first Qwen3-ASR subtitle transcription, translation, review, and export workstation."
 readme = "README.md"
 requires-python = ">=3.12,<3.14"

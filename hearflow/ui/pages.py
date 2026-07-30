@@ -308,6 +308,9 @@ class EditorPage(QWidget):
         needle = text.casefold()
         for row in range(self.model.rowCount()):
             item = self.model.segment_at(row)
+            if item is None:
+                self.table.setRowHidden(row, True)
+                continue
             visible = (
                 not needle
                 or needle in (item.source_text + " " + (item.translated_text or "")).casefold()
@@ -365,14 +368,14 @@ class TranslationPage(QWidget):
         self.model = QLineEdit()
         self.model.setPlaceholderText("例如 qwen3:8b")
         self.target = QLineEdit("繁體中文（台灣）")
-        self.style = QComboBox()
-        self.style.addItems(["自然口語", "精簡字幕", "正式書面", "保留角色語氣"])
+        self.style_combo = QComboBox()
+        self.style_combo.addItems(["自然口語", "精簡字幕", "正式書面", "保留角色語氣"])
         form = QFormLayout()
         form.addRow("", self.enabled)
         form.addRow("翻譯來源", self.provider)
         form.addRow("模型", self.model)
         form.addRow("目標語言", self.target)
-        form.addRow("翻譯風格", self.style)
+        form.addRow("翻譯風格", self.style_combo)
         provider_group = QGroupBox("翻譯設定")
         provider_group.setProperty("zone", "translation")
         provider_group.setLayout(form)
@@ -439,6 +442,7 @@ class ReportsPage(QWidget):
 
     export_requested = Signal(str)
     burn_requested = Signal()
+    speech_requested = Signal()
     refresh_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -466,6 +470,9 @@ class ReportsPage(QWidget):
         self.burn_button.setProperty("primary", True)
         self.burn_button.setEnabled(False)
         self.burn_button.clicked.connect(self.burn_requested)
+        self.speech_button = QPushButton("產生語音（TTS，另存新檔）")
+        self.speech_button.setProperty("success", True)
+        self.speech_button.clicked.connect(self.speech_requested)
         self.report_list = QListWidget()
         refresh = QPushButton("重新整理檔案清單")
         refresh.clicked.connect(self.refresh_requested)
@@ -473,7 +480,11 @@ class ReportsPage(QWidget):
         layout.addWidget(title)
         layout.addWidget(subtitle)
         layout.addLayout(formats)
-        layout.addWidget(self.burn_button, alignment=Qt.AlignmentFlag.AlignLeft)
+        action_row = QHBoxLayout()
+        action_row.addWidget(self.burn_button)
+        action_row.addWidget(self.speech_button)
+        action_row.addStretch(1)
+        layout.addLayout(action_row)
         layout.addWidget(QLabel("報告與輸出"))
         layout.addWidget(self.report_list, 1)
         layout.addWidget(refresh, alignment=Qt.AlignmentFlag.AlignRight)

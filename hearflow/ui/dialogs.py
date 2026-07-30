@@ -133,7 +133,7 @@ class SettingsDialog(QDialog):
         self.translation_api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.translation_api_key.setPlaceholderText("留空則保留既有金鑰；本機 Ollama 通常不需要")
         self.target_language = QLineEdit(settings.translation.target_language)
-        self.style = QLineEdit(settings.translation.style)
+        self.style_edit = QLineEdit(settings.translation.style)
         translation_form = QFormLayout()
         translation_form.addRow("", self.translation_enabled)
         translation_form.addRow("認證名稱", self.translation_provider_id)
@@ -141,7 +141,7 @@ class SettingsDialog(QDialog):
         translation_form.addRow("翻譯模型", self.translation_model)
         translation_form.addRow("API 金鑰", self.translation_api_key)
         translation_form.addRow("目標語言", self.target_language)
-        translation_form.addRow("語氣風格", self.style)
+        translation_form.addRow("語氣風格", self.style_edit)
 
         warning = QLabel("API 金鑰不會寫入一般設定檔；正式翻譯金鑰使用 Windows 認證管理員。")
         warning.setWordWrap(True)
@@ -175,7 +175,7 @@ class SettingsDialog(QDialog):
             base_url=self.translation_url.text().strip(),
             model=self.translation_model.text().strip(),
             target_language=self.target_language.text().strip(),
-            style=self.style.text().strip(),
+            style=self.style_edit.text().strip(),
         )
         return replace(self._original, engine=engine, translation=translation)
 

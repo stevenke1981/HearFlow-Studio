@@ -137,11 +137,33 @@ class EngineManager:
         )
         ffmpeg = _tool_path(runtime, "ffmpeg")
         ffprobe = _tool_path(runtime, "ffprobe")
-        model_dir = runtime / "models"
+        asr_model_dir = runtime / "models" / "asr"
         models = sorted(
-            item for item in model_dir.glob("*.gguf") if "mmproj" not in item.name.casefold()
+            item for item in asr_model_dir.glob("*.gguf") if "mmproj" not in item.name.casefold()
         )
-        mmprojs = sorted(model_dir.glob("*mmproj*.gguf"))
+        mmprojs = sorted(asr_model_dir.glob("*mmproj*.gguf"))
+        # Backward-compatible legacy lookup.  It is deliberately restricted to
+        # ASR-named files so a TranslateGemma GGUF can never be selected as the
+        # Qwen3-ASR model merely because it sorts first.
+        if not models or not mmprojs:
+            legacy_model_dir = runtime / "models"
+            legacy_models = sorted(
+                item
+                for item in legacy_model_dir.glob("*.gguf")
+                if "mmproj" not in item.name.casefold()
+                and ("qwen3-asr" in item.name.casefold() or "asr" in item.name.casefold())
+                and "gemma" not in item.name.casefold()
+                and "translation" not in item.name.casefold()
+            )
+            legacy_mmprojs = sorted(
+                item
+                for item in legacy_model_dir.glob("*mmproj*.gguf")
+                if "qwen3-asr" in item.name.casefold() or "asr" in item.name.casefold()
+            )
+            if not models:
+                models = legacy_models
+            if not mmprojs:
+                mmprojs = legacy_mmprojs
         return EnginePaths(
             runtime=runtime,
             llama_server=llama,
